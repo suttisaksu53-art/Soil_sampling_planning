@@ -31,14 +31,27 @@
 
         /* Custom UI for layers control */
         .leaflet-control-layers { font-family: 'Prompt', sans-serif; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+        
+        /* Shapefile Label Style */
+        .shp-label-tooltip {
+            background: rgba(255, 255, 255, 0.85);
+            border: 1px solid #10b981;
+            border-radius: 4px;
+            color: #047857;
+            font-weight: 600;
+            font-size: 11px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+            padding: 2px 6px;
+            white-space: nowrap;
+        }
     </style>
 </head>
-<body class="flex flex-col h-screen overflow-hidden">
+<body class="flex flex-col h-[100dvh] overflow-hidden">
 
     <!-- Header -->
     <header class="h-16 bg-emerald-700 text-white shadow-md flex items-center justify-between px-4 md:px-6 z-40 shrink-0 relative">
         <div class="flex items-center gap-3">
-            <button id="mobile-menu-btn" class="md:hidden text-white hover:text-emerald-200 focus:outline-none transition-transform active:scale-95">
+            <button id="mobile-menu-btn" class="md:hidden text-white hover:text-emerald-200 focus:outline-none transition-transform active:scale-95 p-2 -ml-2">
                 <i class="fa-solid fa-bars text-2xl"></i>
             </button>
             <i class="fa-solid fa-leaf text-2xl text-emerald-300 hidden sm:block"></i>
@@ -79,19 +92,36 @@
             <!-- 2. Shapefile Setup -->
             <div class="p-3 border-b border-gray-100">
                 <label class="block text-sm font-medium text-gray-700 mb-2">
-                    <i class="fa-solid fa-layer-group text-emerald-600 mr-2"></i>ขอบเขตพื้นที่ (Shapefile)
+                    <i class="fa-solid fa-layer-group text-emerald-600 mr-2"></i>ขอบเขตพื้นที่ (Shapefile ต้องเป็นไฟล ZIP และไม่ใหญ่เกินไป)
                 </label>
                 <input type="file" id="shp-upload" accept=".zip,.rar" class="block w-full text-xs text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 mb-2 cursor-pointer">
                 
                 <div class="grid grid-cols-2 gap-2 mt-2">
                     <div>
-                        <label class="text-[10px] text-gray-500 block">สีพื้นที่</label>
+                        <label class="text-[10px] text-gray-500 block">สีพื้นที่ตั้งต้น</label>
                         <input type="color" id="shp-color" value="#0ea5e9" class="w-full h-6 cursor-pointer border-none rounded">
                     </div>
                     <div>
                         <label class="text-[10px] text-gray-500 block">ความโปร่งแสง</label>
                         <input type="range" id="shp-opacity" min="0" max="1" step="0.1" value="0.2" class="w-full accent-emerald-600 mt-1">
                     </div>
+                </div>
+
+                <!-- Advanced Shapefile Options (Symbology & Labels) -->
+                <div id="shp-advanced-options" class="hidden mt-3 border-t border-gray-100 pt-3">
+                    <label class="text-[10px] text-emerald-700 font-semibold block mb-1"><i class="fa-solid fa-tags mr-1"></i>แยกสีตามข้อมูล (Categorized)</label>
+                    <select id="shp-category-field" class="w-full border border-gray-300 rounded p-1 text-xs mb-2 bg-gray-50">
+                        <option value="">-- สีเดียวทั้งหมด --</option>
+                    </select>
+                    
+                    <label class="text-[10px] text-emerald-700 font-semibold block mb-1"><i class="fa-solid fa-font mr-1"></i>แสดงป้ายชื่อ (Labels)</label>
+                    <select id="shp-label-field" class="w-full border border-gray-300 rounded p-1 text-xs mb-3 bg-gray-50">
+                        <option value="">-- ไม่แสดงป้ายชื่อ --</option>
+                    </select>
+                    
+                    <button id="apply-shp-style-btn" class="w-full bg-emerald-100 text-emerald-800 hover:bg-emerald-200 text-xs py-1.5 rounded transition font-medium">
+                        <i class="fa-solid fa-arrows-rotate mr-1"></i> อัปเดตสไตล์พื้นที่
+                    </button>
                 </div>
             </div>
 
@@ -133,12 +163,9 @@
             </div>
 
             <!-- 5. Map Actions -->
-            <div class="p-3 border-b border-gray-100 grid grid-cols-2 gap-2 bg-gray-50">
-                <button id="export-img-btn" class="bg-blue-600 hover:bg-blue-700 text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition">
-                    <i class="fa-solid fa-image"></i> Save แผนที่
-                </button>
-                <button id="clear-btn" class="bg-red-500 hover:bg-red-600 text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition">
-                    <i class="fa-solid fa-trash-can"></i> ล้างข้อมูล
+            <div class="p-3 border-b border-gray-100 bg-gray-50">
+                <button id="clear-btn" class="w-full bg-red-500 hover:bg-red-600 text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition">
+                    <i class="fa-solid fa-trash-can"></i> ล้างข้อมูลทั้งหมด
                 </button>
             </div>
 
@@ -170,8 +197,6 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <!-- shpjs for Shapefile Parsing -->
     <script src="https://unpkg.com/shpjs@latest/dist/shp.min.js"></script>
-    <!-- html2canvas for Exporting to JPG -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <!-- SheetJS for Excel/CSV Import/Export -->
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
 
@@ -183,14 +208,14 @@
             preferCanvas: true
         });
 
-        // Layer: แผนที่ภูมิประเทศ (Terrain)
+        // Layer: แผนที่ภูมิประเทศ (Terrain) - ของ Google Maps 
         const terrainLayer = L.tileLayer('https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {
-            maxZoom: 20, attribution: '&copy; Google Maps', crossOrigin: true
+            maxZoom: 20, attribution: '&copy; Google Maps'
         });
 
-        // Layer: แผนที่ดาวเทียม (Satellite Hybrid)
+        // Layer: แผนที่ดาวเทียมพร้อมเส้นถนนและป้ายชื่อ (Satellite Hybrid) - ของ Google Maps
         const satelliteLayer = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
-            maxZoom: 20, attribution: '&copy; Google Maps', crossOrigin: true
+            maxZoom: 20, attribution: '&copy; Google Maps'
         });
 
         // Set default layer
@@ -208,6 +233,8 @@
         let samplePoints = [];
         let shapefileLayer = null;
         let pointIdCounter = 1;
+        let globalGeojson = null; // เก็บข้อมูล geojson เพื่อใช้กับ symbology/labels
+        let categoryColors = {}; // เก็บชุดสีที่ถูกสุ่มให้แต่ละหมวดหมู่
 
         // --- 3. Dynamic Styling Functions ---
         // สร้าง Icon ตามการตั้งค่า
@@ -237,7 +264,7 @@
 
         // อัปเดตสี Shapefile
         function updateShapefileStyle() {
-            if (shapefileLayer) {
+            if (shapefileLayer && !document.getElementById('shp-category-field').value) {
                 const color = document.getElementById('shp-color').value;
                 const opacity = document.getElementById('shp-opacity').value;
                 shapefileLayer.setStyle({
@@ -250,6 +277,54 @@
         }
         document.getElementById('shp-color').addEventListener('input', updateShapefileStyle);
         document.getElementById('shp-opacity').addEventListener('input', updateShapefileStyle);
+
+
+        // --- ฟังก์ชันสำหรับการวาด Shapefile แบบมี Label และ Categorized ---
+        function getCategoryColor(val) {
+            if(!categoryColors[val]) {
+                const hue = Math.floor(Math.random() * 360);
+                categoryColors[val] = `hsl(${hue}, 70%, 50%)`;
+            }
+            return categoryColors[val];
+        }
+
+        function renderShapefileAdvanced() {
+            if(!globalGeojson) return;
+            if (shapefileLayer) map.removeLayer(shapefileLayer);
+
+            const catField = document.getElementById('shp-category-field').value;
+            const lblField = document.getElementById('shp-label-field').value;
+            const defaultColor = document.getElementById('shp-color').value;
+            const opacity = parseFloat(document.getElementById('shp-opacity').value);
+
+            shapefileLayer = L.geoJSON(globalGeojson, {
+                style: function(feature) {
+                    let color = defaultColor;
+                    if(catField && feature.properties && feature.properties[catField] !== undefined && feature.properties[catField] !== null) {
+                        color = getCategoryColor(feature.properties[catField]);
+                    }
+                    return {
+                        color: color,
+                        weight: 2,
+                        fillColor: color,
+                        fillOpacity: opacity
+                    };
+                },
+                onEachFeature: function(feature, layer) {
+                    if(lblField && feature.properties && feature.properties[lblField] !== undefined && feature.properties[lblField] !== null) {
+                        const lblText = String(feature.properties[lblField]);
+                        // ผูก Label ไว้ตรงกลาง Polygon
+                        layer.bindTooltip(lblText, {
+                            permanent: true,
+                            direction: 'center',
+                            className: 'shp-label-tooltip'
+                        });
+                    }
+                }
+            }).addTo(map);
+        }
+
+        document.getElementById('apply-shp-style-btn').addEventListener('click', renderShapefileAdvanced);
 
 
         // --- 4. Thai Provinces Data & Search ---
@@ -436,14 +511,43 @@
             const reader = new FileReader();
             reader.onload = function(event) {
                 shp(event.target.result).then(function(geojson) {
-                    if (shapefileLayer) map.removeLayer(shapefileLayer);
+                    globalGeojson = geojson;
+                    categoryColors = {}; // Reset สี
 
-                    shapefileLayer = L.geoJSON(geojson).addTo(map);
-                    updateShapefileStyle(); // Apply colors
+                    // ดึงชื่อฟิลด์ (Attributes) เพื่อใส่ใน Dropdown
+                    const catSelect = document.getElementById('shp-category-field');
+                    const lblSelect = document.getElementById('shp-label-field');
+                    catSelect.innerHTML = '<option value="">-- สีเดียวทั้งหมด --</option>';
+                    lblSelect.innerHTML = '<option value="">-- ไม่แสดงป้ายชื่อ --</option>';
+
+                    let hasFeatures = false;
+                    let properties = null;
+
+                    // ค้นหา properties จาก Feature แรกที่มี
+                    if (geojson.type === 'FeatureCollection' && geojson.features.length > 0) {
+                        properties = geojson.features[0].properties;
+                        hasFeatures = true;
+                    } else if (Array.isArray(geojson) && geojson[0].type === 'FeatureCollection' && geojson[0].features.length > 0) {
+                        // กรณี Zip มีหลายไฟล์ย่อย
+                        properties = geojson[0].features[0].properties;
+                        hasFeatures = true;
+                    }
+
+                    if(hasFeatures && properties) {
+                        for(let key in properties) {
+                            catSelect.insertAdjacentHTML('beforeend', `<option value="${key}">${key}</option>`);
+                            lblSelect.insertAdjacentHTML('beforeend', `<option value="${key}">${key}</option>`);
+                        }
+                        document.getElementById('shp-advanced-options').classList.remove('hidden');
+                    }
+
+                    // วาดแผนที่เริ่มต้น
+                    renderShapefileAdvanced();
                     map.fitBounds(shapefileLayer.getBounds());
                     
                     Swal.fire({ icon: 'success', title: 'สำเร็จ', text: 'นำเข้าขอบเขตพื้นที่เรียบร้อย', timer: 1500 });
                 }).catch(function(err) {
+                    console.error("Shapefile Error:", err);
                     Swal.fire('ข้อผิดพลาด', 'ไฟล์ไม่ถูกต้อง ตรวจสอบว่าในไฟล์ .zip มี .shp, .shx, .dbf ครบถ้วน', 'error');
                 });
                 document.getElementById('shp-upload').value = '';
@@ -516,20 +620,7 @@
         });
 
 
-        // --- 8. Export Image & Clear Data ---
-        document.getElementById('export-img-btn').addEventListener('click', function() {
-            Swal.fire({ title: 'เตรียมภาพแผนที่...', timer: 2000, didOpen: () => Swal.showLoading() });
-            setTimeout(() => {
-                html2canvas(document.getElementById('map'), { useCORS: true, backgroundColor: null, scale: 2 })
-                .then(canvas => {
-                    const link = document.createElement('a');
-                    link.download = `Map_${new Date().getTime()}.jpg`;
-                    link.href = canvas.toDataURL("image/jpeg", 0.9);
-                    link.click();
-                });
-            }, 500);
-        });
-
+        // --- 8. Clear Data ---
         document.getElementById('clear-btn').addEventListener('click', () => {
             Swal.fire({
                 title: 'ยืนยันการล้างข้อมูล?', icon: 'warning', showCancelButton: true,
@@ -539,6 +630,8 @@
                     samplePoints.forEach(pt => map.removeLayer(pt.marker));
                     samplePoints = []; pointIdCounter = 1; updatePointsList();
                     if (shapefileLayer) { map.removeLayer(shapefileLayer); shapefileLayer = null; }
+                    globalGeojson = null;
+                    document.getElementById('shp-advanced-options').classList.add('hidden');
                 }
             });
         });
