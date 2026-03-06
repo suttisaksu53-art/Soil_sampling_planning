@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบวางแผนการเก็บตัวอย่างดิน (Soil Sampling Planner)</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600&display=swap');
+        
+        body { font-family: 'Prompt', sans-serif; background-color: #f3f4f6; }
+        
+        #map { height: calc(100vh - 4rem); width: 100%; z-index: 10; }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #10b981; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #059669; }
+
+        /* Custom UI for layers control */
+        .leaflet-control-layers { font-family: 'Prompt', sans-serif; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+    </style>
+</head>
+<body class="flex flex-col h-screen overflow-hidden">
+
+    <!-- Header -->
+    <header class="h-16 bg-emerald-700 text-white shadow-md flex items-center justify-between px-6 z-20 shrink-0">
+        <div class="flex items-center gap-3">
+            <i class="fa-solid fa-leaf text-2xl text-emerald-300"></i>
+            <h1 class="text-xl font-semibold">ระบบวางแผนการเก็บตัวอย่างดิน</h1>
+        </div>
+        <div class="text-sm text-emerald-100 hidden md:block">
+            Advanced Soil Sampling Planner
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex flex-1 overflow-hidden relative">
+        
+        <!-- Sidebar -->
+        <aside class="w-80 bg-white shadow-xl flex flex-col z-20 h-full border-r border-gray-200 overflow-y-auto">
+            
+            <!-- 1. Search Province -->
+            <div class="p-3 border-b border-gray-100 bg-gray-50">
+                <label class="block text-sm font-medium text-gray-700 mb-1">
+                    <i class="fa-solid fa-location-dot text-emerald-600 mr-2"></i>ค้นหาจังหวัด
+                </label>
+                <select id="province-select" class="w-full border border-gray-300 rounded p-1.5 text-sm focus:ring-emerald-500 focus:border-emerald-500">
+                    <option value="">-- เลือกจังหวัด --</option>
+                </select>
+            </div>
+
+            <!-- 2. Shapefile Setup -->
+            <div class="p-3 border-b border-gray-100">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fa-solid fa-layer-group text-emerald-600 mr-2"></i>ขอบเขตพื้นที่ (Shapefile)
+                </label>
+                <input type="file" id="shp-upload" accept=".zip,.rar" class="block w-full text-xs text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 mb-2 cursor-pointer">
+                
+                <div class="grid grid-cols-2 gap-2 mt-2">
+                    <div>
+                        <label class="text-[10px] text-gray-500 block">สีพื้นที่</label>
+                        <input type="color" id="shp-color" value="#0ea5e9" class="w-full h-6 cursor-pointer border-none rounded">
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-gray-500 block">ความโปร่งแสง</label>
+                        <input type="range" id="shp-opacity" min="0" max="1" step="0.1" value="0.2" class="w-full accent-emerald-600 mt-1">
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. Point Setup -->
+            <div class="p-3 border-b border-gray-100 bg-gray-50">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fa-solid fa-palette text-emerald-600 mr-2"></i>รูปแบบจุดเก็บตัวอย่าง
+                </label>
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="text-[10px] text-gray-500 block">รูปร่าง</label>
+                        <select id="point-shape" class="w-full border border-gray-300 rounded p-1 text-xs">
+                            <option value="circle">วงกลม</option>
+                            <option value="square">สี่เหลี่ยม</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-gray-500 block">สีของจุด</label>
+                        <input type="color" id="point-color" value="#ef4444" class="w-full h-6 cursor-pointer border-none rounded">
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. Data Import/Export (Excel/CSV) -->
+            <div class="p-3 border-b border-gray-100">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fa-solid fa-file-excel text-emerald-600 mr-2"></i>จัดการข้อมูลจุด (Excel/CSV)
+                </label>
+                <div class="flex gap-2 mb-2">
+                    <label class="flex-1 bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 text-xs py-1.5 px-2 rounded text-center cursor-pointer transition">
+                        <i class="fa-solid fa-upload"></i> Import จุด
+                        <input type="file" id="excel-upload" accept=".xlsx, .xls, .csv" class="hidden">
+                    </label>
+                    <button id="export-excel-btn" class="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs py-1.5 px-2 rounded text-center transition">
+                        <i class="fa-solid fa-download"></i> Export จุด
+                    </button>
+                </div>
+                <p class="text-[10px] text-gray-400">* ไฟล์ต้องมีคอลัมน์ชื่อ Lat และ Lng</p>
+            </div>
+
+            <!-- 5. Map Actions -->
+            <div class="p-3 border-b border-gray-100 grid grid-cols-2 gap-2 bg-gray-50">
+                <button id="export-img-btn" class="bg-blue-600 hover:bg-blue-700 text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition">
+                    <i class="fa-solid fa-image"></i> Save แผนที่
+                </button>
+                <button id="clear-btn" class="bg-red-500 hover:bg-red-600 text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition">
+                    <i class="fa-solid fa-trash-can"></i> ล้างข้อมูล
+                </button>
+            </div>
+
+            <!-- 6. Point List -->
+            <div class="p-3 flex-1 flex flex-col min-h-0">
+                <div class="flex justify-between items-center mb-2">
+                    <label class="block text-sm font-medium text-gray-700">
+                        <i class="fa-solid fa-map-pin text-emerald-600 mr-2"></i>รายการจุด (${count})
+                    </label>
+                    <span id="point-count" class="bg-emerald-100 text-emerald-800 text-xs font-semibold px-2 py-0.5 rounded-full">0 จุด</span>
+                </div>
+                
+                <ul id="points-list" class="flex-1 space-y-2 overflow-y-auto pr-1 pb-4">
+                    <!-- Points appended here -->
+                </ul>
+            </div>
+            
+        </aside>
+
+        <!-- Map Container -->
+        <div class="flex-1 relative" id="map-wrapper">
+            <div id="map"></div>
+        </div>
+        
+    </main>
+
+    <!-- Scripts -->
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- shpjs for Shapefile Parsing -->
+    <script src="https://unpkg.com/shpjs@latest/dist/shp.min.js"></script>
+    <!-- html2canvas for Exporting to JPG -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <!-- SheetJS for Excel/CSV Import/Export -->
+    <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+
+    <script>
+        // --- 1. Map Initialization & Layers ---
+        const map = L.map('map', {
+            center: [13.736717, 100.523186],
+            zoom: 6,
+            preferCanvas: true
+        });
+
+        // Layer: แผนที่ภูมิประเทศ (Terrain)
+        const terrainLayer = L.tileLayer('https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {
+            maxZoom: 20, attribution: '&copy; Google Maps', crossOrigin: true
+        });
+
+        // Layer: แผนที่ดาวเทียม (Satellite Hybrid)
+        const satelliteLayer = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+            maxZoom: 20, attribution: '&copy; Google Maps', crossOrigin: true
+        });
+
+        // Set default layer
+        terrainLayer.addTo(map);
+
+        // Add Layer Control มุมขวาบน
+        const baseMaps = {
+            "ภูมิประเทศ (Terrain)": terrainLayer,
+            "ดาวเทียม (Satellite)": satelliteLayer
+        };
+        L.control.layers(baseMaps, null, {position: 'topright'}).addTo(map);
+
+
+        // --- 2. State Management ---
+        let samplePoints = [];
+        let shapefileLayer = null;
+        let pointIdCounter = 1;
+
+        // --- 3. Dynamic Styling Functions ---
+        // สร้าง Icon ตามการตั้งค่า
+        function getCustomIcon() {
+            const color = document.getElementById('point-color').value;
+            const shape = document.getElementById('point-shape').value;
+            const radius = shape === 'circle' ? '50%' : '2px';
+            
+            return L.divIcon({
+                className: 'custom-div-icon',
+                html: `<div style="background-color: ${color}; width: 14px; height: 14px; border-radius: ${radius}; border: 2px solid white; box-shadow: 0 0 4px rgba(0,0,0,0.5);"></div>`,
+                iconSize: [14, 14],
+                iconAnchor: [7, 7]
+            });
+        }
+
+        // อัปเดตจุดทั้งหมดเมื่อเปลี่ยนการตั้งค่าสี/รูปทรง
+        function updateAllPointsStyle() {
+            const newIcon = getCustomIcon();
+            samplePoints.forEach(pt => {
+                pt.marker.setIcon(newIcon);
+            });
+        }
+
+        document.getElementById('point-color').addEventListener('input', updateAllPointsStyle);
+        document.getElementById('point-shape').addEventListener('change', updateAllPointsStyle);
+
+        // อัปเดตสี Shapefile
+        function updateShapefileStyle() {
+            if (shapefileLayer) {
+                const color = document.getElementById('shp-color').value;
+                const opacity = document.getElementById('shp-opacity').value;
+                shapefileLayer.setStyle({
+                    color: color,
+                    weight: 2,
+                    fillColor: color,
+                    fillOpacity: parseFloat(opacity)
+                });
+            }
+        }
+        document.getElementById('shp-color').addEventListener('input', updateShapefileStyle);
+        document.getElementById('shp-opacity').addEventListener('input', updateShapefileStyle);
+
+
+        // --- 4. Thai Provinces Data & Search ---
+    const provinces = [
+            { name: "กรุงเทพมหานคร", lat: 13.7563, lng: 100.5018 },
+            { name: "กระบี่", lat: 8.0863, lng: 98.9063 },
+            { name: "กาญจนบุรี", lat: 14.0158, lng: 99.5328 },
+            { name: "กาฬสินธุ์", lat: 16.4322, lng: 103.5061 },
+            { name: "กำแพงเพชร", lat: 16.4828, lng: 99.5227 },
+            { name: "ขอนแก่น", lat: 16.4322, lng: 102.8236 },
+            { name: "จันทบุรี", lat: 12.6114, lng: 102.1039 },
+            { name: "ฉะเชิงเทรา", lat: 13.6904, lng: 101.0780 },
+            { name: "ชลบุรี", lat: 13.3611, lng: 100.9847 },
+            { name: "ชัยนาท", lat: 15.1852, lng: 100.1251 },
+            { name: "ชัยภูมิ", lat: 15.8068, lng: 102.0315 },
+            { name: "ชุมพร", lat: 10.4930, lng: 99.1800 },
+            { name: "เชียงราย", lat: 19.9105, lng: 99.8406 },
+            { name: "เชียงใหม่", lat: 18.7953, lng: 98.9620 },
+            { name: "ตรัง", lat: 7.5563, lng: 99.6114 },
+            { name: "ตราด", lat: 12.2428, lng: 102.5175 },
+            { name: "ตาก", lat: 16.8840, lng: 99.1258 },
+            { name: "นครนายก", lat: 14.2069, lng: 101.2131 },
+            { name: "นครปฐม", lat: 13.8199, lng: 100.0443 },
+            { name: "นครพนม", lat: 17.4048, lng: 104.7816 },
+            { name: "นครราชสีมา", lat: 14.9799, lng: 102.0978 },
+            { name: "นครศรีธรรมราช", lat: 8.4304, lng: 99.9595 },
+            { name: "นครสวรรค์", lat: 15.6848, lng: 100.1186 },
+            { name: "นนทบุรี", lat: 13.8591, lng: 100.5217 },
+            { name: "นราธิวาส", lat: 6.4255, lng: 101.8253 },
+            { name: "น่าน", lat: 18.7831, lng: 100.7801 },
+            { name: "บึงกาฬ", lat: 18.3609, lng: 103.6465 },
+            { name: "บุรีรัมย์", lat: 14.9930, lng: 103.1029 },
+            { name: "ปทุมธานี", lat: 14.0208, lng: 100.5250 },
+            { name: "ประจวบคีรีขันธ์", lat: 11.8106, lng: 99.7961 },
+            { name: "ปราจีนบุรี", lat: 14.0510, lng: 101.3734 },
+            { name: "ปัตตานี", lat: 6.8673, lng: 101.2501 },
+            { name: "พระนครศรีอยุธยา", lat: 14.3532, lng: 100.5690 },
+            { name: "พะเยา", lat: 19.1666, lng: 99.9022 },
+            { name: "พังงา", lat: 8.4303, lng: 98.5346 },
+            { name: "พัทลุง", lat: 7.6167, lng: 100.0707 },
+            { name: "พิจิตร", lat: 16.4405, lng: 100.3488 },
+            { name: "พิษณุโลก", lat: 16.8211, lng: 100.2659 },
+            { name: "เพชรบุรี", lat: 13.1118, lng: 99.9431 },
+            { name: "เพชรบูรณ์", lat: 16.4184, lng: 101.1550 },
+            { name: "แพร่", lat: 18.1446, lng: 100.1403 },
+            { name: "ภูเก็ต", lat: 7.8804, lng: 98.3922 },
+            { name: "มหาสารคาม", lat: 16.1852, lng: 103.2995 },
+            { name: "มุกดาหาร", lat: 16.5443, lng: 104.7171 },
+            { name: "แม่ฮ่องสอน", lat: 19.3020, lng: 97.9654 },
+            { name: "ยโสธร", lat: 15.7926, lng: 104.1453 },
+            { name: "ยะลา", lat: 6.5411, lng: 101.2800 },
+            { name: "ร้อยเอ็ด", lat: 16.0538, lng: 103.6520 },
+            { name: "ระนอง", lat: 9.9658, lng: 98.6348 },
+            { name: "ระยอง", lat: 12.6814, lng: 101.2816 },
+            { name: "ราชบุรี", lat: 13.5283, lng: 99.8134 },
+            { name: "ลพบุรี", lat: 14.7995, lng: 100.6534 },
+            { name: "ลำปาง", lat: 18.2888, lng: 99.4930 },
+            { name: "ลำพูน", lat: 18.5745, lng: 99.0087 },
+            { name: "เลย", lat: 17.4860, lng: 101.7223 },
+            { name: "ศรีสะเกษ", lat: 15.1186, lng: 104.3220 },
+            { name: "สกลนคร", lat: 17.1664, lng: 104.1486 },
+            { name: "สงขลา", lat: 7.1898, lng: 100.5954 },
+            { name: "สตูล", lat: 6.6238, lng: 100.0674 },
+            { name: "สมุทรปราการ", lat: 13.5991, lng: 100.5968 },
+            { name: "สมุทรสงคราม", lat: 13.4098, lng: 100.0023 },
+            { name: "สมุทรสาคร", lat: 13.5475, lng: 100.2744 },
+            { name: "สระแก้ว", lat: 13.8240, lng: 102.0646 },
+            { name: "สระบุรี", lat: 14.5289, lng: 100.9101 },
+            { name: "สิงห์บุรี", lat: 14.8936, lng: 100.3967 },
+            { name: "สุโขทัย", lat: 17.0053, lng: 99.8262 },
+            { name: "สุพรรณบุรี", lat: 14.4742, lng: 100.1123 },
+            { name: "สุราษฎร์ธานี", lat: 9.1342, lng: 99.3334 },
+            { name: "สุรินทร์", lat: 14.8818, lng: 103.4936 },
+            { name: "หนองคาย", lat: 17.8785, lng: 102.7413 },
+            { name: "หนองบัวลำภู", lat: 17.2046, lng: 102.4407 },
+            { name: "อ่างทอง", lat: 14.5896, lng: 100.4551 },
+            { name: "อำนาจเจริญ", lat: 15.8606, lng: 104.6258 },
+            { name: "อุดรธานี", lat: 17.4138, lng: 102.7872 },
+            { name: "อุตรดิตถ์", lat: 17.6201, lng: 100.0993 },
+            { name: "อุทัยธานี", lat: 15.3787, lng: 100.0250 },
+            { name: "อุบลราชธานี", lat: 15.2287, lng: 104.8564 }
+        ];
+
+        const provinceSelect = document.getElementById('province-select');
+        provinces.sort((a, b) => a.name.localeCompare(b.name, 'th')).forEach(prov => {
+            const option = document.createElement('option');
+            option.value = `${prov.lat},${prov.lng}`;
+            option.textContent = prov.name;
+            provinceSelect.appendChild(option);
+        });
+
+        provinceSelect.addEventListener('change', (e) => {
+            if (e.target.value) {
+                const [lat, lng] = e.target.value.split(',');
+                map.flyTo([lat, lng], 10, { duration: 1.5 });
+            }
+        });
+
+        // --- 5. Plotting Points Logic ---
+        function addPointToMap(lat, lng, idOverride = null) {
+            const currentId = idOverride || pointIdCounter;
+            const marker = L.marker([lat, lng], { icon: getCustomIcon() }).addTo(map);
+            
+            const popupContent = `<b>จุดที่ ${currentId}</b><br>Lat: ${lat.toFixed(6)}<br>Lng: ${lng.toFixed(6)}`;
+            marker.bindPopup(popupContent);
+            
+            samplePoints.push({ id: currentId, marker: marker, lat: lat, lng: lng });
+            
+            if(!idOverride) pointIdCounter++;
+            updatePointsList();
+        }
+
+        map.on('click', function(e) {
+            addPointToMap(e.latlng.lat, e.latlng.lng);
+        });
+
+        function updatePointsList() {
+            const listEl = document.getElementById('points-list');
+            const countEl = document.getElementById('point-count');
+            
+            listEl.innerHTML = '';
+            countEl.textContent = `${samplePoints.length} จุด`;
+            
+            // อัปเดต title ด้านบน
+            listEl.parentElement.querySelector('label').innerHTML = `<i class="fa-solid fa-map-pin text-emerald-600 mr-2"></i>รายการจุด (${samplePoints.length})`;
+
+            samplePoints.forEach(pt => {
+                const li = document.createElement('li');
+                li.className = "bg-white p-2 rounded shadow-sm border border-gray-100 flex justify-between items-center group text-sm";
+                
+                // ลิงก์ Google Maps
+                const gmapsLink = `https://www.google.com/maps/dir/?api=1&destination=${pt.lat},${pt.lng}`;
+
+                li.innerHTML = `
+                    <div class="flex flex-col cursor-pointer flex-1" onclick="focusPoint(${pt.lat}, ${pt.lng})">
+                        <span class="font-semibold text-gray-800">จุดที่ ${pt.id}</span>
+                        <span class="text-[10px] text-gray-500">${pt.lat.toFixed(5)}, ${pt.lng.toFixed(5)}</span>
+                    </div>
+                    <div class="flex items-center gap-1 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                        <a href="${gmapsLink}" target="_blank" class="text-blue-500 hover:text-blue-700 p-1.5 bg-blue-50 rounded" title="นำทางด้วย Google Maps" onclick="event.stopPropagation();">
+                            <i class="fa-solid fa-directions"></i>
+                        </a>
+                        <button onclick="event.stopPropagation(); removePoint(${pt.id})" class="text-red-500 hover:text-red-700 p-1.5 bg-red-50 rounded" title="ลบจุดนี้">
+                            <i class="fa-solid fa-trash"></i>
+                        </button>
+                    </div>
+                `;
+                listEl.appendChild(li);
+            });
+        }
+
+        window.focusPoint = function(lat, lng) { map.flyTo([lat, lng], 16); };
+        window.removePoint = function(id) {
+            const index = samplePoints.findIndex(p => p.id === id);
+            if (index > -1) {
+                map.removeLayer(samplePoints[index].marker);
+                samplePoints.splice(index, 1);
+                updatePointsList();
+            }
+        };
+
+        // --- 6. Shapefile Upload (.zip, .rar) ---
+        document.getElementById('shp-upload').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const fileName = file.name.toLowerCase();
+            
+            // แจ้งเตือนเรื่องไฟล์ RAR
+            if (fileName.endsWith('.rar')) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'ข้อจำกัดระบบ',
+                    text: 'ระบบบนเว็บเบราว์เซอร์ไม่สามารถแตกไฟล์ .rar ได้โดยตรง กรุณาบีบอัดไฟล์ Shapefile เป็นนามสกุล .zip แทนครับ',
+                    confirmButtonText: 'รับทราบ',
+                    confirmButtonColor: '#10b981'
+                });
+                this.value = '';
+                return;
+            }
+
+            Swal.fire({ title: 'กำลังประมวลผล...', didOpen: () => { Swal.showLoading(); } });
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                shp(event.target.result).then(function(geojson) {
+                    if (shapefileLayer) map.removeLayer(shapefileLayer);
+
+                    shapefileLayer = L.geoJSON(geojson).addTo(map);
+                    updateShapefileStyle(); // Apply colors
+                    map.fitBounds(shapefileLayer.getBounds());
+                    
+                    Swal.fire({ icon: 'success', title: 'สำเร็จ', text: 'นำเข้าขอบเขตพื้นที่เรียบร้อย', timer: 1500 });
+                }).catch(function(err) {
+                    Swal.fire('ข้อผิดพลาด', 'ไฟล์ไม่ถูกต้อง ตรวจสอบว่าในไฟล์ .zip มี .shp, .shx, .dbf ครบถ้วน', 'error');
+                });
+                document.getElementById('shp-upload').value = '';
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+
+        // --- 7. Import / Export Excel & CSV ---
+        // Export
+        document.getElementById('export-excel-btn').addEventListener('click', () => {
+            if(samplePoints.length === 0) return Swal.fire('แจ้งเตือน', 'ไม่มีจุดให้ Export', 'info');
+
+            // เตรียมข้อมูล
+            const data = samplePoints.map(p => ({
+                "Point_ID": p.id,
+                "Latitude": p.lat,
+                "Longitude": p.lng,
+                "Google_Maps_Link": `https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lng}`
+            }));
+
+            const worksheet = XLSX.utils.json_to_sheet(data);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "SamplePoints");
+            
+            // สร้างไฟล์ดาวน์โหลด
+            XLSX.writeFile(workbook, `Soil_Points_${new Date().getTime()}.xlsx`);
+        });
+
+        // Import
+        document.getElementById('excel-upload').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if(!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                try {
+                    const data = new Uint8Array(event.target.result);
+                    const workbook = XLSX.read(data, {type: 'array'});
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const json = XLSX.utils.sheet_to_json(worksheet);
+
+                    let importedCount = 0;
+                    json.forEach(row => {
+                        // ดึงค่าไม่ว่าจะสะกด Lat, Latitude, Lng, Longitude, lon
+                        const lat = parseFloat(row.Lat || row.Latitude || row.lat);
+                        const lng = parseFloat(row.Lng || row.Longitude || row.Long || row.lng || row.lon);
+                        
+                        if(!isNaN(lat) && !isNaN(lng)) {
+                            addPointToMap(lat, lng);
+                            importedCount++;
+                        }
+                    });
+
+                    if(importedCount > 0) {
+                        Swal.fire('สำเร็จ!', `นำเข้าสำเร็จ ${importedCount} จุด`, 'success');
+                        // เลื่อนแผนที่ไปที่จุดล่าสุด
+                        const lastPoint = samplePoints[samplePoints.length - 1];
+                        map.flyTo([lastPoint.lat, lastPoint.lng], 12);
+                    } else {
+                        Swal.fire('ข้อผิดพลาด', 'ไม่พบคอลัมน์ Lat, Lng หรือ Latitude, Longitude ในไฟล์', 'error');
+                    }
+                } catch(error) {
+                    Swal.fire('ข้อผิดพลาด', 'อ่านไฟล์ไม่สำเร็จ', 'error');
+                }
+                document.getElementById('excel-upload').value = ''; // Reset
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+
+        // --- 8. Export Image & Clear Data ---
+        document.getElementById('export-img-btn').addEventListener('click', function() {
+            Swal.fire({ title: 'เตรียมภาพแผนที่...', timer: 2000, didOpen: () => Swal.showLoading() });
+            setTimeout(() => {
+                html2canvas(document.getElementById('map'), { useCORS: true, backgroundColor: null, scale: 2 })
+                .then(canvas => {
+                    const link = document.createElement('a');
+                    link.download = `Map_${new Date().getTime()}.jpg`;
+                    link.href = canvas.toDataURL("image/jpeg", 0.9);
+                    link.click();
+                });
+            }, 500);
+        });
+
+        document.getElementById('clear-btn').addEventListener('click', () => {
+            Swal.fire({
+                title: 'ยืนยันการล้างข้อมูล?', icon: 'warning', showCancelButton: true,
+                confirmButtonColor: '#d33', confirmButtonText: 'ลบทิ้ง'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    samplePoints.forEach(pt => map.removeLayer(pt.marker));
+                    samplePoints = []; pointIdCounter = 1; updatePointsList();
+                    if (shapefileLayer) { map.removeLayer(shapefileLayer); shapefileLayer = null; }
+                }
+            });
+        });
+
+    </script>
+</body>
+</html>
