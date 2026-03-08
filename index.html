@@ -111,20 +111,23 @@
                 </button>
             </div>
 
-            <!-- 1. Search Province -->
+            <!-- 1. Search Province & Current Location -->
             <div class="p-3 border-b border-gray-100 bg-gray-50 shrink-0">
                 <label class="block text-sm font-medium text-gray-700 mb-1">
-                    <i class="fa-solid fa-location-dot text-emerald-600 mr-2"></i>ค้นหาจังหวัด
+                    <i class="fa-solid fa-location-dot text-emerald-600 mr-2"></i>ค้นหาพื้นที่ / ตำแหน่ง
                 </label>
-                <select id="province-select" class="w-full border border-gray-300 rounded p-1.5 text-sm focus:ring-emerald-500 focus:border-emerald-500">
+                <select id="province-select" class="w-full border border-gray-300 rounded p-1.5 text-sm focus:ring-emerald-500 focus:border-emerald-500 mb-2">
                     <option value="">-- เลือกจังหวัด --</option>
                 </select>
+                <button id="current-location-btn" class="w-full bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 text-xs py-1.5 px-2 rounded transition flex items-center justify-center gap-1 font-medium">
+                    <i class="fa-solid fa-location-crosshairs"></i> แสดงตำแหน่งปัจจุบันของฉัน
+                </button>
             </div>
 
             <!-- 2. Shapefile Setup (Multiple Layers) -->
             <div class="p-3 border-b border-gray-100 shrink-0">
                 <label class="block text-sm font-medium text-gray-700 mb-2">
-                    <i class="fa-solid fa-layer-group text-emerald-600 mr-2"></i>ชั้นข้อมูลแผนที่ (Shapefile .zip เท่านั้น)
+                    <i class="fa-solid fa-layer-group text-emerald-600 mr-2"></i>ชั้นข้อมูลแผนที่ (Shapefile)
                 </label>
                 <input type="file" id="shp-upload" accept=".zip,.rar" class="block w-full text-xs text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 mb-2 cursor-pointer">
                 
@@ -218,7 +221,7 @@
             <!-- 5. Map Actions (Route & Clear) -->
             <div class="p-3 border-b border-gray-100 bg-gray-50 shrink-0 grid grid-cols-2 gap-2">
                 <button id="plan-route-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition" title="วางแผนเส้นทางที่ใกล้ที่สุด">
-                    <i class="fa-solid fa-route"></i> ช่วยวางแผนเดินทาง
+                    <i class="fa-solid fa-route"></i> แผนเดินทาง
                 </button>
                 <button id="clear-btn" class="w-full bg-red-500 hover:bg-red-600 text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition">
                     <i class="fa-solid fa-trash-can"></i> ล้างข้อมูลจุด
@@ -277,6 +280,9 @@
         // Set default layer to Satellite
         satelliteLayer.addTo(map);
 
+        // Add Scale Control
+        L.control.scale({ imperial: false, metric: true, position: 'bottomleft' }).addTo(map);
+
         // Add Layer Control มุมขวาบน
         const baseMaps = {
             "ภูมิประเทศ (Terrain)": terrainLayer,
@@ -289,6 +295,8 @@
         let samplePoints = [];
         let pointIdCounter = 1;
         let routeLayer = null; // เก็บเส้นทางการเดินทาง
+        let currentLocationMarker = null; // เก็บจุดตำแหน่งปัจจุบัน
+        let currentLocationCircle = null; // เก็บรัศมีความแม่นยำ
         
         // ระบบจัดเก็บ Shapefile หลาย Layer
         let shpLayers = {}; 
@@ -567,7 +575,7 @@
         });
 
 
-        // --- 5. Thai Provinces Data & Search ---
+        // --- 5. Thai Provinces Data & Search & Current Location ---
     const provinces = [
             { name: "กรุงเทพมหานคร", lat: 13.7563, lng: 100.5018 },
             { name: "กระบี่", lat: 8.0863, lng: 98.9063 },
@@ -661,6 +669,60 @@
                 const [lat, lng] = e.target.value.split(',');
                 map.flyTo([lat, lng], 10, { duration: 1.5 });
             }
+        });
+
+        // ฟังก์ชันแสดงตำแหน่งปัจจุบัน
+        document.getElementById('current-location-btn').addEventListener('click', () => {
+            if (!navigator.geolocation) {
+                return Swal.fire('ไม่รองรับการทำงาน', 'เบราว์เซอร์ของคุณไม่รองรับการระบุตำแหน่ง', 'error');
+            }
+
+            Swal.fire({ title: 'กำลังค้นหาตำแหน่ง...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    const accuracy = position.coords.accuracy;
+
+                    // ลบจุดแสดงตำแหน่งเดิมถ้ามี
+                    if (currentLocationMarker) map.removeLayer(currentLocationMarker);
+                    if (currentLocationCircle) map.removeLayer(currentLocationCircle);
+
+                    // สร้างไอคอนสีน้ำเงินที่โดดเด่น
+                    const locIcon = L.divIcon({
+                        className: 'current-loc-icon',
+                        html: `<div style="background-color: #3b82f6; width: 16px; height: 16px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5);"></div>`,
+                        iconSize: [16, 16],
+                        iconAnchor: [8, 8]
+                    });
+
+                    // วาดจุดและวงกลมรัศมีความแม่นยำ
+                    currentLocationMarker = L.marker([lat, lng], { icon: locIcon }).addTo(map)
+                        .bindPopup('<b class="text-blue-600">ตำแหน่งของคุณ</b>').openPopup();
+                    
+                    currentLocationCircle = L.circle([lat, lng], { radius: accuracy, color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.15, weight: 1 }).addTo(map);
+
+                    // เลื่อนแผนที่ไปที่ตำแหน่งนั้น
+                    map.flyTo([lat, lng], 16, { duration: 1.5 });
+                    Swal.close();
+                },
+                (error) => {
+                    console.error("Geolocation Error Code:", error.code, "Message:", error.message);
+                    let errorMsg = 'ไม่สามารถดึงข้อมูลตำแหน่งปัจจุบันได้';
+                    if (error.code === 1) {
+                        errorMsg = 'โปรดอนุญาตการเข้าถึงตำแหน่ง (Location Permission) ในเบราว์เซอร์ของคุณ หากใช้งานผ่านระบบจำลอง (Iframe) อาจต้องเปิดในหน้าต่างใหม่';
+                    } else if (error.code === 2) {
+                        errorMsg = 'ไม่พบสัญญาณพิกัดตำแหน่ง (Position Unavailable)';
+                    } else if (error.code === 3) {
+                        errorMsg = 'หมดเวลาการค้นหาตำแหน่ง (Timeout)';
+                    } else if (error.message) {
+                        errorMsg += '<br/>(' + error.message + ')';
+                    }
+                    Swal.fire('ข้อผิดพลาด', errorMsg, 'error');
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
         });
 
         // ล้างเส้นทาง (Route) ถ้ามีการแก้ไขจุด
@@ -939,6 +1001,12 @@
                     samplePoints = []; 
                     pointIdCounter = 1; 
                     updatePointsList();
+
+                    // ลบจุดตำแหน่งปัจจุบันออกด้วย (ถ้ามี)
+                    if (currentLocationMarker) map.removeLayer(currentLocationMarker);
+                    if (currentLocationCircle) map.removeLayer(currentLocationCircle);
+                    currentLocationMarker = null;
+                    currentLocationCircle = null;
                     
                     Swal.fire('สำเร็จ', 'ล้างข้อมูลจุดที่ปักเรียบร้อยแล้ว', 'success');
                 }
