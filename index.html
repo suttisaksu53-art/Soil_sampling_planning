@@ -68,6 +68,14 @@
             border-color: #10b981;
             background-color: #ecfdf5;
         }
+        
+        /* Animated Polyline for Route */
+        .route-line {
+            animation: dash 10s linear infinite;
+        }
+        @keyframes dash {
+            to { stroke-dashoffset: -100; }
+        }
     </style>
 </head>
 <body class="flex flex-col h-[100dvh] overflow-hidden">
@@ -207,10 +215,13 @@
                 <p class="text-[10px] text-gray-400">* ไฟล์ต้องมีคอลัมน์ชื่อ Lat และ Lng</p>
             </div>
 
-            <!-- 5. Map Actions -->
-            <div class="p-3 border-b border-gray-100 bg-gray-50 shrink-0">
+            <!-- 5. Map Actions (Route & Clear) -->
+            <div class="p-3 border-b border-gray-100 bg-gray-50 shrink-0 grid grid-cols-2 gap-2">
+                <button id="plan-route-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition" title="วางแผนเส้นทางที่ใกล้ที่สุด">
+                    <i class="fa-solid fa-route"></i> แผนเดินทาง
+                </button>
                 <button id="clear-btn" class="w-full bg-red-500 hover:bg-red-600 text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition">
-                    <i class="fa-solid fa-trash-can"></i> ล้างข้อมูลจุดทั้งหมด
+                    <i class="fa-solid fa-trash-can"></i> ล้างข้อมูลจุด
                 </button>
             </div>
 
@@ -277,6 +288,7 @@
         // --- 2. State Management ---
         let samplePoints = [];
         let pointIdCounter = 1;
+        let routeLayer = null; // เก็บเส้นทางการเดินทาง
         
         // ระบบจัดเก็บ Shapefile หลาย Layer
         let shpLayers = {}; 
@@ -651,8 +663,18 @@
             }
         });
 
+        // ล้างเส้นทาง (Route) ถ้ามีการแก้ไขจุด
+        function clearRoute() {
+            if (routeLayer) {
+                map.removeLayer(routeLayer);
+                routeLayer = null;
+            }
+        }
+
         // --- 6. Plotting Points (Click on Map) ---
         function addPointToMap(lat, lng, idOverride = null) {
+            clearRoute(); // ล้างเส้นทางเก่า
+
             const currentId = idOverride || pointIdCounter;
             const marker = L.marker([lat, lng], { icon: getCustomIcon() }).addTo(map);
             
@@ -726,6 +748,7 @@
                 if (result.isConfirmed) {
                     const index = samplePoints.findIndex(p => p.id === id);
                     if (index > -1) {
+                        clearRoute(); // ล้างเส้นทางเก่า
                         map.removeLayer(samplePoints[index].marker);
                         samplePoints.splice(index, 1);
                         updatePointsList();
@@ -797,8 +820,102 @@
             reader.readAsArrayBuffer(file);
         });
 
+        // --- 8. Plan Route (Nearest Neighbor algorithm) ---
+        document.getElementById('plan-route-btn').addEventListener('click', async () => {
+            if (samplePoints.length < 2) {
+                return Swal.fire('แจ้งเตือน', 'ต้องมีจุดเก็บตัวอย่างอย่างน้อย 2 จุดเพื่อวางแผนเส้นทาง', 'info');
+            }
 
-        // --- 8. Clear Data ---
+            // สร้างรายการตัวเลือกสำหรับหน้าต่างแจ้งเตือน
+            const inputOptions = {};
+            samplePoints.forEach(p => {
+                inputOptions[p.id] = `จุดที่ ${p.id}`;
+            });
+
+            const { value: startIdStr } = await Swal.fire({
+                title: 'เลือกจุดเริ่มต้นเดินทาง',
+                text: 'ระบบจะคำนวณเส้นทางที่ใกล้ที่สุดให้ครบทุกจุด',
+                input: 'select',
+                inputOptions: inputOptions,
+                inputPlaceholder: '-- เลือกจุดที่ต้องการเริ่มต้น --',
+                showCancelButton: true,
+                confirmButtonText: 'คำนวณเส้นทาง',
+                cancelButtonText: 'ยกเลิก',
+                inputValidator: (value) => {
+                    return new Promise((resolve) => {
+                        if (value) { resolve(); }
+                        else { resolve('กรุณาเลือกจุดเริ่มต้น'); }
+                    });
+                }
+            });
+
+            if (startIdStr) {
+                calculateAndDrawRoute(parseInt(startIdStr));
+            }
+        });
+
+        function calculateAndDrawRoute(startId) {
+            let unvisited = [...samplePoints];
+            let currentPoint = unvisited.find(p => p.id === startId);
+            unvisited = unvisited.filter(p => p.id !== startId);
+            
+            let path = [currentPoint];
+
+            // Nearest Neighbor Algorithm
+            while (unvisited.length > 0) {
+                let nearestPoint = null;
+                let minDistance = Infinity;
+                let nearestIndex = -1;
+
+                for (let i = 0; i < unvisited.length; i++) {
+                    const target = unvisited[i];
+                    // คำนวณระยะทางแม่นยำเป็นเมตร (Metres) ด้วย Leaflet
+                    const dist = map.distance([currentPoint.lat, currentPoint.lng], [target.lat, target.lng]);
+                    
+                    if (dist < minDistance) {
+                        minDistance = dist;
+                        nearestPoint = target;
+                        nearestIndex = i;
+                    }
+                }
+
+                path.push(nearestPoint);
+                currentPoint = nearestPoint;
+                unvisited.splice(nearestIndex, 1);
+            }
+
+            // วาดเส้นลงบนแผนที่
+            clearRoute();
+
+            const latlngs = path.map(p => [p.lat, p.lng]);
+            
+            routeLayer = L.polyline(latlngs, {
+                color: '#3b82f6', // สีฟ้า blue-500
+                weight: 4,
+                dashArray: '10, 10', // เส้นประ
+                opacity: 0.9,
+                className: 'route-line' // ทำให้เส้นกระพริบวิ่งได้ด้วย CSS (Animation)
+            }).addTo(map);
+
+            // ขยับแผนที่ให้อยู่ตรงกลางเส้นทางพอดี
+            map.fitBounds(routeLayer.getBounds(), { padding: [50, 50] });
+
+            // สรุปลำดับการเดินทางในหน้าต่าง
+            const orderText = path.map((p, index) => {
+                if (index === 0) return `<div class="mb-1 text-emerald-700"><b>จุดเริ่มต้น:</b> จุดที่ ${p.id}</div>`;
+                return `<div class="mb-1 text-gray-700 pl-4"><i class="fa-solid fa-arrow-down mr-2 text-gray-400"></i><b>ลำดับที่ ${index+1}:</b> จุดที่ ${p.id}</div>`;
+            }).join('');
+
+            Swal.fire({
+                title: 'แผนการเดินทางเสร็จสมบูรณ์',
+                html: `<div class="text-left text-sm h-56 overflow-y-auto bg-gray-50 p-3 rounded border">${orderText}</div>`,
+                icon: 'success',
+                confirmButtonText: 'ตกลง'
+            });
+        }
+
+
+        // --- 9. Clear Data ---
         document.getElementById('clear-btn').addEventListener('click', () => {
             if (samplePoints.length === 0) {
                 return Swal.fire('แจ้งเตือน', 'ไม่มีจุดที่ปักไว้บนกระดาน', 'info');
@@ -815,6 +932,8 @@
                 cancelButtonText: 'ยกเลิก'
             }).then((result) => {
                 if (result.isConfirmed) {
+                    clearRoute(); // ล้างเส้นทางเก่า
+
                     // ล้างเฉพาะจุดที่ปักเอง
                     samplePoints.forEach(pt => map.removeLayer(pt.marker));
                     samplePoints = []; 
@@ -826,7 +945,7 @@
             });
         });
 
-        // --- 9. Mobile Sidebar Toggle ---
+        // --- 10. Mobile Sidebar Toggle ---
         const sidebar = document.getElementById('sidebar');
         const overlay = document.getElementById('sidebar-overlay');
         
