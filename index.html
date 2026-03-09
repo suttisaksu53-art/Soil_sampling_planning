@@ -218,13 +218,21 @@
                 <p class="text-[10px] text-gray-400">* ไฟล์ต้องมีคอลัมน์ชื่อ Lat และ Lng</p>
             </div>
 
-            <!-- 5. Map Actions (Route & Clear) -->
-            <div class="p-3 border-b border-gray-100 bg-gray-50 shrink-0 grid grid-cols-2 gap-2">
-                <button id="plan-route-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition" title="วางแผนเส้นทางที่ใกล้ที่สุด">
-                    <i class="fa-solid fa-route"></i> แผนเดินทาง
-                </button>
+            <!-- 5. Map Actions (Tools) -->
+            <div class="p-3 border-b border-gray-100 bg-gray-50 shrink-0">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fa-solid fa-toolbox text-emerald-600 mr-2"></i>เครื่องมือแผนที่
+                </label>
+                <div class="grid grid-cols-2 gap-2 mb-2">
+                    <button id="plan-route-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition" title="วางแผนเส้นทางที่ใกล้ที่สุด">
+                        <i class="fa-solid fa-route"></i> แผนเดินทาง
+                    </button>
+                    <button id="share-line-btn" class="w-full bg-[#00B900] hover:bg-[#009900] text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition" title="แชร์จุดทั้งหมดให้เพื่อน">
+                        <i class="fa-brands fa-line text-sm"></i> แชร์ข้อมูล
+                    </button>
+                </div>
                 <button id="clear-btn" class="w-full bg-red-500 hover:bg-red-600 text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition">
-                    <i class="fa-solid fa-trash-can"></i> ล้างข้อมูลจุด
+                    <i class="fa-solid fa-trash-can"></i> ล้างข้อมูลกระดานทั้งหมด
                 </button>
             </div>
 
@@ -1013,7 +1021,105 @@
             });
         });
 
-        // --- 10. Mobile Sidebar Toggle ---
+        // --- 10. Share Route / Points logic ---
+        document.getElementById('share-line-btn').addEventListener('click', () => {
+            if (samplePoints.length === 0) {
+                return Swal.fire('แจ้งเตือน', 'ไม่มีจุดให้แชร์', 'info');
+            }
+            
+            // สร้างข้อความแชร์ ประกอบด้วยชื่อจุด พิกัด และลิงก์ Google Maps
+            let msg = `📍 แผนเก็บตัวอย่างดิน (รวม ${samplePoints.length} จุด)\n\n`;
+            
+            samplePoints.forEach(p => {
+                const lat = p.lat.toFixed(6);
+                const lng = p.lng.toFixed(6);
+                const gmapsLink = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+                msg += `จุดที่ ${p.id}: ${lat}, ${lng}\nนำทาง: ${gmapsLink}\n\n`;
+            });
+            
+            // ลบ \n\n ตัวสุดท้ายออก
+            msg = msg.trim();
+            
+            // Line Scheme
+            const encodedMsg = encodeURIComponent(msg);
+            const lineUrl = `https://line.me/R/msg/text/?${encodedMsg}`;
+            
+            Swal.fire({
+                title: 'แชร์ข้อมูลพิกัด',
+                html: `
+                    <p class="text-sm mb-3 text-gray-600">ส่งพิกัดให้เพื่อนทาง LINE หรือคัดลอกข้อความด้านล่าง</p>
+                    <a href="${lineUrl}" target="_blank" class="flex items-center justify-center w-full bg-[#00B900] hover:bg-[#009900] text-white text-sm font-bold py-2.5 px-4 rounded mb-3 transition">
+                        <i class="fa-brands fa-line text-lg mr-2"></i> ส่งเข้าแชท LINE
+                    </a>
+                    <div class="flex flex-col gap-2">
+                        <textarea id="share-text-area" class="w-full border border-gray-300 rounded p-2 text-xs bg-gray-50 focus:outline-none" rows="6" readonly>${msg}</textarea>
+                        <button onclick="copyShareText()" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-2 rounded text-xs font-bold transition w-full">
+                            คัดลอกข้อความทั้งหมด
+                        </button>
+                    </div>
+                `,
+                showConfirmButton: false,
+                showCloseButton: true
+            });
+        });
+
+        window.copyShareText = function() {
+            const textArea = document.getElementById('share-text-area');
+            textArea.select();
+            textArea.setSelectionRange(0, 99999); // For mobile devices
+            document.execCommand("copy");
+            
+            Swal.fire({
+                icon: 'success', 
+                title: 'คัดลอกข้อความแล้ว', 
+                toast: true, 
+                position: 'top-end', 
+                showConfirmButton: false, 
+                timer: 1500
+            });
+        }
+
+        // --- 11. Load points from URL on start ---
+        function loadPointsFromURL() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const ptsParam = urlParams.get('pts');
+            
+            if (ptsParam) {
+                const ptsArray = ptsParam.split('|');
+                let imported = 0;
+                
+                ptsArray.forEach(ptStr => {
+                    const coords = ptStr.split(',');
+                    if (coords.length === 2) {
+                        const lat = parseFloat(coords[0]);
+                        const lng = parseFloat(coords[1]);
+                        if (!isNaN(lat) && !isNaN(lng)) {
+                            addPointToMap(lat, lng);
+                            imported++;
+                        }
+                    }
+                });
+                
+                if (imported > 0) {
+                    // Zoom to fit all newly loaded points
+                    const group = new L.featureGroup(samplePoints.map(p => p.marker));
+                    map.fitBounds(group.getBounds(), { padding: [50, 50] });
+                    
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'สำเร็จ',
+                        text: `โหลดข้อมูลจากลิงก์เรียบร้อยแล้ว (${imported} จุด)`,
+                        timer: 2000,
+                        showConfirmButton: false
+                    });
+                }
+            }
+        }
+        
+        // Trigger URL parse logic right after initialization
+        loadPointsFromURL();
+
+        // --- 12. Mobile Sidebar Toggle ---
         const sidebar = document.getElementById('sidebar');
         const overlay = document.getElementById('sidebar-overlay');
         
