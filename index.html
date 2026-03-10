@@ -90,7 +90,7 @@
             <h1 class="text-lg md:text-xl font-semibold truncate">ระบบวางแผนการเก็บตัวอย่างดิน</h1>
         </div>
         <div class="text-sm text-emerald-100 hidden md:block">
-            DESIGN BY AAAMACKY
+            Advanced Soil Sampling Planner
         </div>
     </header>
 
@@ -232,17 +232,25 @@
                 <label class="block text-sm font-medium text-gray-700 mb-2">
                     <i class="fa-solid fa-toolbox text-emerald-600 mr-2"></i>เครื่องมือแผนที่
                 </label>
+                
                 <div class="grid grid-cols-2 gap-2 mb-2">
                     <button id="plan-route-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition" title="วางแผนเส้นทางถนนที่ใกล้ที่สุด">
-                        <i class="fa-solid fa-route"></i> แผนเดินทาง
+                        <i class="fa-solid fa-route"></i> วางแผนเดินทาง
                     </button>
-                    <button id="share-line-btn" class="w-full bg-[#00B900] hover:bg-[#009900] text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition" title="แชร์จุดทั้งหมดให้เพื่อน">
-                        <i class="fa-brands fa-line text-sm"></i> แชร์ข้อมูล
+                    <!-- ปุ่มแชร์แผนเดินทาง ถูกปิดการทำงานไว้ก่อนจนกว่าจะคำนวณเส้นทางเสร็จ -->
+                    <button id="share-route-btn" class="w-full bg-indigo-500 text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition opacity-50 cursor-not-allowed" disabled title="ต้องวางแผนเส้นทางก่อน จึงจะแชร์ได้">
+                        <i class="fa-solid fa-share-nodes"></i> แชร์แผนเดินทาง
                     </button>
                 </div>
-                <button id="clear-btn" class="w-full bg-red-500 hover:bg-red-600 text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition">
-                    <i class="fa-solid fa-trash-can"></i> ล้างข้อมูลกระดานทั้งหมด
-                </button>
+
+                <div class="grid grid-cols-2 gap-2">
+                    <button id="share-line-btn" class="w-full bg-[#00B900] hover:bg-[#009900] text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition" title="แชร์ข้อมูลจุดทั้งหมด (ไม่เรียงลำดับ)">
+                        <i class="fa-brands fa-line text-sm"></i> แชร์พิกัดจุด
+                    </button>
+                    <button id="clear-btn" class="w-full bg-red-500 hover:bg-red-600 text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition">
+                        <i class="fa-solid fa-trash-can"></i> ล้างกระดาน
+                    </button>
+                </div>
             </div>
 
             <!-- 6. Point List -->
@@ -314,6 +322,7 @@
         let routeLayer = null; // เก็บเส้นทางการเดินทาง
         let currentLocationMarker = null; // เก็บจุดตำแหน่งปัจจุบัน
         let currentLocationCircle = null; // เก็บรัศมีความแม่นยำ
+        let currentPlannedRoute = null; // ตัวแปรเก็บข้อมูลเส้นทางที่คำนวณแล้วสำหรับแชร์
         
         // ระบบจัดเก็บ Shapefile หลาย Layer
         let shpLayers = {}; 
@@ -784,11 +793,29 @@
             );
         });
 
+        // เปิด-ปิด การแสดงผลปุ่มแชร์เส้นทาง
+        function enableShareRoute(path) {
+            currentPlannedRoute = path;
+            const shareBtn = document.getElementById('share-route-btn');
+            if (shareBtn) {
+                shareBtn.disabled = false;
+                shareBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                shareBtn.classList.add('hover:bg-indigo-600');
+            }
+        }
+
         // ล้างเส้นทาง (Route) ถ้ามีการแก้ไขจุด
         function clearRoute() {
             if (routeLayer) {
                 map.removeLayer(routeLayer);
                 routeLayer = null;
+            }
+            currentPlannedRoute = null;
+            const shareBtn = document.getElementById('share-route-btn');
+            if (shareBtn) {
+                shareBtn.disabled = true;
+                shareBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                shareBtn.classList.remove('hover:bg-indigo-600');
             }
         }
 
@@ -943,18 +970,15 @@
 
         // --- 8. Plan Route (Nearest Neighbor algorithm with Real Roads) ---
         document.getElementById('plan-route-btn').addEventListener('click', async () => {
-            if (samplePoints.length < 1) {
+            if (samplePoints.length === 0) {
                 return Swal.fire('แจ้งเตือน', 'กรุณาปักจุดเป้าหมายอย่างน้อย 1 จุดเพื่อวางแผนเส้นทาง', 'info');
             }
 
             // สร้างรายการตัวเลือกสำหรับหน้าต่างแจ้งเตือน
-            const inputOptions = {};
+            const inputOptions = {
+                'current_auto': '📍 ตำแหน่งปัจจุบันของฉัน (ค้นหาอัตโนมัติ)'
+            };
             
-            // เพิ่มตัวเลือกตำแหน่งปัจจุบัน (ถ้ามีการค้นหาไว้)
-            if (currentLocationMarker) {
-                inputOptions['current'] = `📍 ตำแหน่งปัจจุบันของฉัน`;
-            }
-
             samplePoints.forEach(p => {
                 inputOptions[p.id] = `จุดที่ ${p.id}`;
             });
@@ -976,70 +1000,109 @@
                 }
             });
 
-            if (startIdStr) {
-                calculateAndDrawRealRoute(startIdStr);
+            if (startIdStr === 'current_auto') {
+                Swal.fire({ title: 'กำลังดึงตำแหน่งปัจจุบัน...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+                
+                try {
+                    const loc = await new Promise((resolve, reject) => {
+                        if (!navigator.geolocation) {
+                            reject(new Error("Browser does not support geolocation"));
+                        } else {
+                            navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 });
+                        }
+                    });
+                    
+                    const lat = loc.coords.latitude;
+                    const lng = loc.coords.longitude;
+                    const accuracy = loc.coords.accuracy;
+
+                    // วาดจุดตำแหน่งปัจจุบันให้เห็นด้วย
+                    if (currentLocationMarker) map.removeLayer(currentLocationMarker);
+                    if (currentLocationCircle) map.removeLayer(currentLocationCircle);
+
+                    const locIcon = L.divIcon({
+                        className: 'current-loc-icon',
+                        html: `<div style="background-color: #3b82f6; width: 16px; height: 16px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 5px rgba(0,0,0,0.5);"></div>`,
+                        iconSize: [16, 16],
+                        iconAnchor: [8, 8]
+                    });
+
+                    currentLocationMarker = L.marker([lat, lng], { icon: locIcon }).addTo(map).bindPopup('<b class="text-blue-600">ตำแหน่งของคุณ</b>');
+                    currentLocationCircle = L.circle([lat, lng], { radius: accuracy, color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.15, weight: 1 }).addTo(map);
+
+                    Swal.close();
+                    
+                    const startPoint = { id: 'current', lat: lat, lng: lng };
+                    calculateAndDrawRealRoute(startPoint, [...samplePoints]);
+                    
+                } catch (error) {
+                    console.error("Geolocation Error:", error);
+                    let errorMsg = 'ไม่สามารถดึงข้อมูลตำแหน่งปัจจุบันได้ โปรดตรวจสอบการอนุญาต (Location Permission)';
+                    if (error && error.code === 1) {
+                        errorMsg = 'โปรดอนุญาตการเข้าถึงตำแหน่ง (Location Permission) ในเบราว์เซอร์ของคุณ';
+                    } else if (error && error.code === 2) {
+                        errorMsg = 'ไม่พบสัญญาณพิกัดตำแหน่ง (Position Unavailable)';
+                    } else if (error && error.code === 3) {
+                        errorMsg = 'หมดเวลาการค้นหาตำแหน่ง (Timeout)';
+                    }
+                    Swal.fire('ข้อผิดพลาด', errorMsg, 'error');
+                }
+            } else if (startIdStr) {
+                const id = parseInt(startIdStr);
+                const startPoint = samplePoints.find(p => p.id === id);
+                const unvisited = samplePoints.filter(p => p.id !== id);
+                calculateAndDrawRealRoute(startPoint, unvisited);
             }
         });
 
-        async function calculateAndDrawRealRoute(startIdStr) {
-            Swal.fire({ title: 'กำลังคำนวณเส้นทางจริง...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
-
-            // 1. Prepare points
-            let allPoints = [...samplePoints];
-            let startPoint = null;
-
-            if (startIdStr === 'current') {
-                const latlng = currentLocationMarker.getLatLng();
-                startPoint = { id: 'current', lat: latlng.lat, lng: latlng.lng };
-            } else {
-                const id = parseInt(startIdStr);
-                startPoint = allPoints.find(p => p.id === id);
-                // นำจุดเริ่มต้นออกจากจุดที่ยังไม่ได้ไป (unvisited)
-                allPoints = allPoints.filter(p => p.id !== id);
-            }
-
-            let unvisited = [...allPoints];
+        async function calculateAndDrawRealRoute(startPoint, unvisitedPoints) {
             let path = [startPoint];
             let currentPoint = startPoint;
+            let unvisited = [...unvisitedPoints];
+            
+            // ถ้ารวมจุดเริ่มต้นแล้วมีแค่ 1 จุด ก็ไม่ต้องคำนวณเส้นทาง
+            if (unvisited.length === 0) {
+                Swal.fire('ข้อมูลน้อยเกินไป', 'มีจุดหมายเพียงจุดเดียว กรุณาปักจุดเป้าหมายเพิ่มเติม', 'info');
+                return;
+            }
+
+            Swal.fire({ title: 'กำลังคำนวณเส้นทางจริง...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
 
             try {
-                // ถ้ามีจุดที่ต้องไปมากกว่า 0 ถึงจะเรียก API จัดลำดับ
-                if (unvisited.length > 0) {
-                    // ใช้ OSRM Table API เพื่อดึงตารางระยะทาง (Distance Matrix) ระหว่างทุกจุด
-                    const nodes = [startPoint, ...unvisited];
-                    
-                    // OSRM ใช้พิกัดรูปแบบ: lng,lat
-                    const coordString = nodes.map(p => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
-                    
-                    const tableRes = await fetch(`https://router.project-osrm.org/table/v1/driving/${coordString}?annotations=distance`);
-                    const tableData = await tableRes.json();
-                    
-                    if(tableData.code !== 'Ok') throw new Error("OSRM Table API Error");
+                // ใช้ OSRM Table API เพื่อดึงตารางระยะทาง (Distance Matrix) ระหว่างทุกจุด
+                const nodes = [startPoint, ...unvisited];
+                
+                // OSRM ใช้พิกัดรูปแบบ: lng,lat
+                const coordString = nodes.map(p => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
+                
+                const tableRes = await fetch(`https://router.project-osrm.org/table/v1/driving/${coordString}?annotations=distance`);
+                const tableData = await tableRes.json();
+                
+                if(tableData.code !== 'Ok') throw new Error("OSRM Table API Error");
 
-                    // จัดลำดับด้วย Nearest Neighbor Algorithm โดยใช้ตารางระยะทางจริง
-                    let currentIndexInNodes = 0; // index 0 คือ startPoint
-                    let remainingIndices = unvisited.map((_, i) => i + 1); // index 1 เป็นต้นไปคือ unvisited
+                // จัดลำดับด้วย Nearest Neighbor Algorithm โดยใช้ตารางระยะทางจริง
+                let currentIndexInNodes = 0; // index 0 คือ startPoint
+                let remainingIndices = unvisited.map((_, i) => i + 1); // index 1 เป็นต้นไปคือ unvisited
 
-                    while(remainingIndices.length > 0) {
-                        let minDistance = Infinity;
-                        let nearestIdxInNodes = -1;
+                while(remainingIndices.length > 0) {
+                    let minDistance = Infinity;
+                    let nearestIdxInNodes = -1;
 
-                        for(let targetIdx of remainingIndices) {
-                            const dist = tableData.distances[currentIndexInNodes][targetIdx];
-                            if(dist !== null && dist < minDistance) {
-                                minDistance = dist;
-                                nearestIdxInNodes = targetIdx;
-                            }
+                    for(let targetIdx of remainingIndices) {
+                        const dist = tableData.distances[currentIndexInNodes][targetIdx];
+                        if(dist !== null && dist < minDistance) {
+                            minDistance = dist;
+                            nearestIdxInNodes = targetIdx;
                         }
-
-                        if(nearestIdxInNodes === -1) break; // กันเหนียวหากบางจุดไปไม่ถึงกัน
-
-                        // เพิ่มจุดที่ใกล้ที่สุดลงในเส้นทาง
-                        path.push(nodes[nearestIdxInNodes]);
-                        currentIndexInNodes = nearestIdxInNodes;
-                        // ลบจุดนั้นออกจากคิว
-                        remainingIndices = remainingIndices.filter(idx => idx !== nearestIdxInNodes);
                     }
+
+                    if(nearestIdxInNodes === -1) break; // กันเหนียวหากบางจุดไปไม่ถึงกัน
+
+                    // เพิ่มจุดที่ใกล้ที่สุดลงในเส้นทาง
+                    path.push(nodes[nearestIdxInNodes]);
+                    currentIndexInNodes = nearestIdxInNodes;
+                    // ลบจุดนั้นออกจากคิว
+                    remainingIndices = remainingIndices.filter(idx => idx !== nearestIdxInNodes);
                 }
                 
                 // 2. เรียก OSRM Route API เพื่อวาดเส้นเรขาคณิต (Geometry) แบบไปตามถนนจริง
@@ -1063,12 +1126,15 @@
                 }).addTo(map);
 
                 map.fitBounds(routeLayer.getBounds(), { padding: [50, 50] });
+                
+                // เก็บข้อมูลแผนเดินทางเพื่อให้สามารถแชร์ได้
+                enableShareRoute(path);
 
                 // 3. สรุปลำดับการเดินทางในหน้าต่าง
                 const orderText = path.map((p, index) => {
                     const name = p.id === 'current' ? '📍 ตำแหน่งปัจจุบันของคุณ' : `จุดที่ ${p.id}`;
                     if (index === 0) return `<div class="mb-1 text-emerald-700"><b>จุดเริ่มต้น:</b> ${name}</div>`;
-                    return `<div class="mb-1 text-gray-700 pl-4"><i class="fa-solid fa-arrow-down mr-2 text-gray-400"></i><b>ลำดับที่ ${index+1}:</b> ${name}</div>`;
+                    return `<div class="mb-1 text-gray-700 pl-4"><i class="fa-solid fa-arrow-down mr-2 text-gray-400"></i><b>ลำดับที่ ${index}:</b> ${name}</div>`;
                 }).join('');
 
                 const distanceKm = (routeData.routes[0].distance / 1000).toFixed(2);
@@ -1081,10 +1147,17 @@
                             <b>ระยะทางขับรถรวม:</b> ${distanceKm} กม.<br/>
                             <b>เวลาขับรถโดยประมาณ:</b> ${durationMin} นาที
                         </div>
-                        <div class="text-left text-sm h-48 overflow-y-auto bg-gray-50 p-3 rounded border">${orderText}</div>
+                        <div class="text-left text-sm h-48 overflow-y-auto bg-gray-50 p-3 rounded border mb-3">${orderText}</div>
                     `,
                     icon: 'success',
-                    confirmButtonText: 'ตกลง'
+                    showCancelButton: true,
+                    confirmButtonText: '<i class="fa-solid fa-share-nodes"></i> แชร์แผนเดินทาง',
+                    cancelButtonText: 'ปิด',
+                    confirmButtonColor: '#6366f1', // indigo-500
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        document.getElementById('share-route-btn').click();
+                    }
                 });
 
             } catch (e) {
@@ -1129,19 +1202,29 @@
             }).addTo(map);
 
             map.fitBounds(routeLayer.getBounds(), { padding: [50, 50] });
+            
+            // เก็บข้อมูลแผนเดินทางเพื่อให้สามารถแชร์ได้
+            enableShareRoute(path);
 
             const orderText = path.map((p, index) => {
                 const name = p.id === 'current' ? '📍 ตำแหน่งปัจจุบันของคุณ' : `จุดที่ ${p.id}`;
                 if (index === 0) return `<div class="mb-1 text-emerald-700"><b>จุดเริ่มต้น:</b> ${name}</div>`;
-                return `<div class="mb-1 text-gray-700 pl-4"><i class="fa-solid fa-arrow-down mr-2 text-gray-400"></i><b>ลำดับที่ ${index+1}:</b> ${name}</div>`;
+                return `<div class="mb-1 text-gray-700 pl-4"><i class="fa-solid fa-arrow-down mr-2 text-gray-400"></i><b>ลำดับที่ ${index}:</b> ${name}</div>`;
             }).join('');
 
             Swal.fire({
                 title: 'ใช้ระยะทางเส้นตรง (ออฟไลน์)',
                 text: 'ไม่สามารถดึงข้อมูลถนนจริงได้ จึงใช้ระยะทางเส้นตรงในการจัดลำดับแทน',
-                html: `<div class="text-left text-sm h-48 overflow-y-auto bg-gray-50 p-3 rounded border mt-3">${orderText}</div>`,
+                html: `<div class="text-left text-sm h-48 overflow-y-auto bg-gray-50 p-3 rounded border mt-3 mb-3">${orderText}</div>`,
                 icon: 'warning',
-                confirmButtonText: 'ตกลง'
+                showCancelButton: true,
+                confirmButtonText: '<i class="fa-solid fa-share-nodes"></i> แชร์แผนเดินทาง',
+                cancelButtonText: 'ปิด',
+                confirmButtonColor: '#6366f1',
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    document.getElementById('share-route-btn').click();
+                }
             });
         }
 
@@ -1183,12 +1266,66 @@
         });
 
         // --- 10. Share Route / Points logic ---
+        
+        // แชร์แผนการเดินทาง (เรียงลำดับ)
+        document.getElementById('share-route-btn').addEventListener('click', () => {
+            if (!currentPlannedRoute || currentPlannedRoute.length === 0) return;
+
+            let msg = `📍 แผนการเดินทางเก็บตัวอย่างดิน\n(รวม ${currentPlannedRoute.length} ตำแหน่ง)\n\n`;
+            
+            currentPlannedRoute.forEach((p, index) => {
+                const lat = p.lat.toFixed(6);
+                const lng = p.lng.toFixed(6);
+                const gmapsLink = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+                const name = p.id === 'current' ? 'ตำแหน่งปัจจุบัน' : `จุดที่ ${p.id}`;
+                
+                if (index === 0) {
+                    msg += `🚗 [เริ่มต้น] ${name}\nพิกัด: ${lat}, ${lng}\nนำทาง: ${gmapsLink}\n\n`;
+                } else {
+                    msg += `🎯 [ลำดับที่ ${index}] ${name}\nพิกัด: ${lat}, ${lng}\nนำทาง: ${gmapsLink}\n\n`;
+                }
+            });
+            
+            msg = msg.trim();
+            const encodedMsg = encodeURIComponent(msg);
+            const lineUrl = `https://line.me/R/msg/text/?${encodedMsg}`;
+            
+            Swal.fire({
+                title: 'แชร์แผนการเดินทาง',
+                html: `
+                    <p class="text-sm mb-3 text-gray-600">ส่งลำดับเส้นทางให้เพื่อนทาง LINE หรือคัดลอกข้อความด้านล่าง</p>
+                    <a href="${lineUrl}" target="_blank" class="flex items-center justify-center w-full bg-[#00B900] hover:bg-[#009900] text-white text-sm font-bold py-2.5 px-4 rounded mb-3 transition">
+                        <i class="fa-brands fa-line text-lg mr-2"></i> ส่งเข้าแชท LINE
+                    </a>
+                    <div class="flex flex-col gap-2">
+                        <textarea id="share-route-text-area" class="w-full border border-gray-300 rounded p-2 text-xs bg-gray-50 focus:outline-none" rows="6" readonly>${msg}</textarea>
+                        <button onclick="copyShareRouteText()" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-2 rounded text-xs font-bold transition w-full">
+                            คัดลอกข้อความทั้งหมด
+                        </button>
+                    </div>
+                `,
+                showConfirmButton: false,
+                showCloseButton: true
+            });
+        });
+
+        window.copyShareRouteText = function() {
+            const textArea = document.getElementById('share-route-text-area');
+            textArea.select();
+            textArea.setSelectionRange(0, 99999);
+            document.execCommand("copy");
+            
+            Swal.fire({
+                icon: 'success', title: 'คัดลอกแผนเดินทางแล้ว', toast: true, position: 'top-end', showConfirmButton: false, timer: 1500
+            });
+        }
+
+        // แชร์จุดทั้งหมด (ไม่เรียงลำดับ)
         document.getElementById('share-line-btn').addEventListener('click', () => {
             if (samplePoints.length === 0) {
                 return Swal.fire('แจ้งเตือน', 'ไม่มีจุดให้แชร์', 'info');
             }
             
-            // สร้างข้อความแชร์ ประกอบด้วยชื่อจุด พิกัด และลิงก์ Google Maps
             let msg = `📍 แผนเก็บตัวอย่างดิน (รวม ${samplePoints.length} จุด)\n\n`;
             
             samplePoints.forEach(p => {
@@ -1198,10 +1335,7 @@
                 msg += `จุดที่ ${p.id}: ${lat}, ${lng}\nนำทาง: ${gmapsLink}\n\n`;
             });
             
-            // ลบ \n\n ตัวสุดท้ายออก
             msg = msg.trim();
-            
-            // Line Scheme
             const encodedMsg = encodeURIComponent(msg);
             const lineUrl = `https://line.me/R/msg/text/?${encodedMsg}`;
             
@@ -1227,16 +1361,11 @@
         window.copyShareText = function() {
             const textArea = document.getElementById('share-text-area');
             textArea.select();
-            textArea.setSelectionRange(0, 99999); // For mobile devices
+            textArea.setSelectionRange(0, 99999);
             document.execCommand("copy");
             
             Swal.fire({
-                icon: 'success', 
-                title: 'คัดลอกข้อความแล้ว', 
-                toast: true, 
-                position: 'top-end', 
-                showConfirmButton: false, 
-                timer: 1500
+                icon: 'success', title: 'คัดลอกข้อความแล้ว', toast: true, position: 'top-end', showConfirmButton: false, timer: 1500
             });
         }
 
