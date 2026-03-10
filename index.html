@@ -90,7 +90,7 @@
             <h1 class="text-lg md:text-xl font-semibold truncate">ระบบวางแผนการเก็บตัวอย่างดิน</h1>
         </div>
         <div class="text-sm text-emerald-100 hidden md:block">
-            Advanced Soil Sampling Planner
+            DESIGN BY AAAMACKY
         </div>
     </header>
 
@@ -111,13 +111,22 @@
                 </button>
             </div>
 
-            <!-- 1. Search Province & Current Location -->
+            <!-- 1. Search Province, Place & Current Location -->
             <div class="p-3 border-b border-gray-100 bg-gray-50 shrink-0">
                 <label class="block text-sm font-medium text-gray-700 mb-1">
                     <i class="fa-solid fa-location-dot text-emerald-600 mr-2"></i>ค้นหาพื้นที่ / ตำแหน่ง
                 </label>
+                
+                <!-- Search Place Input -->
+                <div class="flex gap-2 mb-2">
+                    <input type="text" id="place-search-input" class="w-full border border-gray-300 rounded p-1.5 text-sm focus:outline-none focus:ring-emerald-500 focus:border-emerald-500" placeholder="พิมพ์ชื่อสถานที่, ตำบล, อำเภอ...">
+                    <button id="place-search-btn" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 rounded shadow-sm transition" title="ค้นหาสถานที่">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                    </button>
+                </div>
+
                 <select id="province-select" class="w-full border border-gray-300 rounded p-1.5 text-sm focus:ring-emerald-500 focus:border-emerald-500 mb-2">
-                    <option value="">-- เลือกจังหวัด --</option>
+                    <option value="">-- หรือเลือกจังหวัดทางลัด --</option>
                 </select>
                 <button id="current-location-btn" class="w-full bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 text-xs py-1.5 px-2 rounded transition flex items-center justify-center gap-1 font-medium">
                     <i class="fa-solid fa-location-crosshairs"></i> แสดงตำแหน่งปัจจุบันของฉัน
@@ -224,7 +233,7 @@
                     <i class="fa-solid fa-toolbox text-emerald-600 mr-2"></i>เครื่องมือแผนที่
                 </label>
                 <div class="grid grid-cols-2 gap-2 mb-2">
-                    <button id="plan-route-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition" title="วางแผนเส้นทางที่ใกล้ที่สุด">
+                    <button id="plan-route-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition" title="วางแผนเส้นทางถนนที่ใกล้ที่สุด">
                         <i class="fa-solid fa-route"></i> แผนเดินทาง
                     </button>
                     <button id="share-line-btn" class="w-full bg-[#00B900] hover:bg-[#009900] text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition" title="แชร์จุดทั้งหมดให้เพื่อน">
@@ -582,9 +591,51 @@
             reader.readAsArrayBuffer(file);
         });
 
+        // --- 5. Place Search, Province & Current Location ---
+        
+        // ค้นหาสถานที่ (Place Search) ใช้ Nominatim API (OpenStreetMap)
+        document.getElementById('place-search-btn').addEventListener('click', async () => {
+            const query = document.getElementById('place-search-input').value;
+            if(!query) return Swal.fire('แจ้งเตือน', 'กรุณาพิมพ์ชื่อสถานที่ที่ต้องการค้นหา', 'info');
 
-        // --- 5. Thai Provinces Data & Search & Current Location ---
-    const provinces = [
+            Swal.fire({ title: 'กำลังค้นหาสถานที่...', allowOutsideClick: false, didOpen: () => { Swal.showLoading(); } });
+
+            try {
+                // เพิ่ม 'ประเทศไทย' ต่อท้ายเพื่อให้แม่นยำขึ้น
+                const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query + ' ประเทศไทย')}`);
+                const data = await res.json();
+
+                if(data && data.length > 0) {
+                    const lat = parseFloat(data[0].lat);
+                    const lon = parseFloat(data[0].lon);
+                    
+                    map.flyTo([lat, lon], 14, { duration: 1.5 });
+                    
+                    // สร้าง Popup ชั่วคราวบอกตำแหน่ง
+                    L.popup()
+                        .setLatLng([lat, lon])
+                        .setContent(`<b class="text-emerald-700">ผลการค้นหา:</b><br>${data[0].display_name.split(',')[0]}`)
+                        .openOn(map);
+
+                    Swal.close();
+                } else {
+                    Swal.fire('ไม่พบสถานที่', 'ลองค้นหาด้วยคำอื่น เช่น ระบุตำบลหรืออำเภอให้ชัดเจนขึ้น', 'error');
+                }
+            } catch(e) {
+                console.error(e);
+                Swal.fire('ข้อผิดพลาด', 'ไม่สามารถเชื่อมต่อระบบค้นหาได้', 'error');
+            }
+        });
+
+        // ใส่ Event ให้กด Enter แล้วค้นหาได้เลย
+        document.getElementById('place-search-input').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                document.getElementById('place-search-btn').click();
+            }
+        });
+
+        // ค้นหาจากจังหวัด
+        const provinces = [
             { name: "กรุงเทพมหานคร", lat: 13.7563, lng: 100.5018 },
             { name: "กระบี่", lat: 8.0863, lng: 98.9063 },
             { name: "กาญจนบุรี", lat: 14.0158, lng: 99.5328 },
@@ -890,21 +941,27 @@
             reader.readAsArrayBuffer(file);
         });
 
-        // --- 8. Plan Route (Nearest Neighbor algorithm) ---
+        // --- 8. Plan Route (Nearest Neighbor algorithm with Real Roads) ---
         document.getElementById('plan-route-btn').addEventListener('click', async () => {
-            if (samplePoints.length < 2) {
-                return Swal.fire('แจ้งเตือน', 'ต้องมีจุดเก็บตัวอย่างอย่างน้อย 2 จุดเพื่อวางแผนเส้นทาง', 'info');
+            if (samplePoints.length < 1) {
+                return Swal.fire('แจ้งเตือน', 'กรุณาปักจุดเป้าหมายอย่างน้อย 1 จุดเพื่อวางแผนเส้นทาง', 'info');
             }
 
             // สร้างรายการตัวเลือกสำหรับหน้าต่างแจ้งเตือน
             const inputOptions = {};
+            
+            // เพิ่มตัวเลือกตำแหน่งปัจจุบัน (ถ้ามีการค้นหาไว้)
+            if (currentLocationMarker) {
+                inputOptions['current'] = `📍 ตำแหน่งปัจจุบันของฉัน`;
+            }
+
             samplePoints.forEach(p => {
                 inputOptions[p.id] = `จุดที่ ${p.id}`;
             });
 
             const { value: startIdStr } = await Swal.fire({
                 title: 'เลือกจุดเริ่มต้นเดินทาง',
-                text: 'ระบบจะคำนวณเส้นทางที่ใกล้ที่สุดให้ครบทุกจุด',
+                text: 'ระบบจะคำนวณเส้นทางถนนจริงที่ใกล้ที่สุดให้ครบทุกจุด',
                 input: 'select',
                 inputOptions: inputOptions,
                 inputPlaceholder: '-- เลือกจุดที่ต้องการเริ่มต้น --',
@@ -920,18 +977,128 @@
             });
 
             if (startIdStr) {
-                calculateAndDrawRoute(parseInt(startIdStr));
+                calculateAndDrawRealRoute(startIdStr);
             }
         });
 
-        function calculateAndDrawRoute(startId) {
-            let unvisited = [...samplePoints];
-            let currentPoint = unvisited.find(p => p.id === startId);
-            unvisited = unvisited.filter(p => p.id !== startId);
-            
-            let path = [currentPoint];
+        async function calculateAndDrawRealRoute(startIdStr) {
+            Swal.fire({ title: 'กำลังคำนวณเส้นทางจริง...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
 
-            // Nearest Neighbor Algorithm
+            // 1. Prepare points
+            let allPoints = [...samplePoints];
+            let startPoint = null;
+
+            if (startIdStr === 'current') {
+                const latlng = currentLocationMarker.getLatLng();
+                startPoint = { id: 'current', lat: latlng.lat, lng: latlng.lng };
+            } else {
+                const id = parseInt(startIdStr);
+                startPoint = allPoints.find(p => p.id === id);
+                // นำจุดเริ่มต้นออกจากจุดที่ยังไม่ได้ไป (unvisited)
+                allPoints = allPoints.filter(p => p.id !== id);
+            }
+
+            let unvisited = [...allPoints];
+            let path = [startPoint];
+            let currentPoint = startPoint;
+
+            try {
+                // ถ้ามีจุดที่ต้องไปมากกว่า 0 ถึงจะเรียก API จัดลำดับ
+                if (unvisited.length > 0) {
+                    // ใช้ OSRM Table API เพื่อดึงตารางระยะทาง (Distance Matrix) ระหว่างทุกจุด
+                    const nodes = [startPoint, ...unvisited];
+                    
+                    // OSRM ใช้พิกัดรูปแบบ: lng,lat
+                    const coordString = nodes.map(p => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
+                    
+                    const tableRes = await fetch(`https://router.project-osrm.org/table/v1/driving/${coordString}?annotations=distance`);
+                    const tableData = await tableRes.json();
+                    
+                    if(tableData.code !== 'Ok') throw new Error("OSRM Table API Error");
+
+                    // จัดลำดับด้วย Nearest Neighbor Algorithm โดยใช้ตารางระยะทางจริง
+                    let currentIndexInNodes = 0; // index 0 คือ startPoint
+                    let remainingIndices = unvisited.map((_, i) => i + 1); // index 1 เป็นต้นไปคือ unvisited
+
+                    while(remainingIndices.length > 0) {
+                        let minDistance = Infinity;
+                        let nearestIdxInNodes = -1;
+
+                        for(let targetIdx of remainingIndices) {
+                            const dist = tableData.distances[currentIndexInNodes][targetIdx];
+                            if(dist !== null && dist < minDistance) {
+                                minDistance = dist;
+                                nearestIdxInNodes = targetIdx;
+                            }
+                        }
+
+                        if(nearestIdxInNodes === -1) break; // กันเหนียวหากบางจุดไปไม่ถึงกัน
+
+                        // เพิ่มจุดที่ใกล้ที่สุดลงในเส้นทาง
+                        path.push(nodes[nearestIdxInNodes]);
+                        currentIndexInNodes = nearestIdxInNodes;
+                        // ลบจุดนั้นออกจากคิว
+                        remainingIndices = remainingIndices.filter(idx => idx !== nearestIdxInNodes);
+                    }
+                }
+                
+                // 2. เรียก OSRM Route API เพื่อวาดเส้นเรขาคณิต (Geometry) แบบไปตามถนนจริง
+                const sortedCoordString = path.map(p => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
+                const routeRes = await fetch(`https://router.project-osrm.org/route/v1/driving/${sortedCoordString}?overview=full&geometries=geojson`);
+                const routeData = await routeRes.json();
+
+                if(routeData.code !== 'Ok') throw new Error("OSRM Route API Error");
+
+                clearRoute();
+
+                // วาดเส้นทางลงบนแผนที่
+                routeLayer = L.geoJSON(routeData.routes[0].geometry, {
+                    style: {
+                        color: '#3b82f6', // สีฟ้า
+                        weight: 5,
+                        opacity: 0.8,
+                        dashArray: '10, 10',
+                        className: 'route-line'
+                    }
+                }).addTo(map);
+
+                map.fitBounds(routeLayer.getBounds(), { padding: [50, 50] });
+
+                // 3. สรุปลำดับการเดินทางในหน้าต่าง
+                const orderText = path.map((p, index) => {
+                    const name = p.id === 'current' ? '📍 ตำแหน่งปัจจุบันของคุณ' : `จุดที่ ${p.id}`;
+                    if (index === 0) return `<div class="mb-1 text-emerald-700"><b>จุดเริ่มต้น:</b> ${name}</div>`;
+                    return `<div class="mb-1 text-gray-700 pl-4"><i class="fa-solid fa-arrow-down mr-2 text-gray-400"></i><b>ลำดับที่ ${index+1}:</b> ${name}</div>`;
+                }).join('');
+
+                const distanceKm = (routeData.routes[0].distance / 1000).toFixed(2);
+                const durationMin = Math.round(routeData.routes[0].duration / 60);
+
+                Swal.fire({
+                    title: 'แผนการเดินทางเสร็จสมบูรณ์',
+                    html: `
+                        <div class="mb-3 text-sm text-gray-600 bg-blue-50 p-2 rounded border border-blue-100 text-center">
+                            <b>ระยะทางขับรถรวม:</b> ${distanceKm} กม.<br/>
+                            <b>เวลาขับรถโดยประมาณ:</b> ${durationMin} นาที
+                        </div>
+                        <div class="text-left text-sm h-48 overflow-y-auto bg-gray-50 p-3 rounded border">${orderText}</div>
+                    `,
+                    icon: 'success',
+                    confirmButtonText: 'ตกลง'
+                });
+
+            } catch (e) {
+                console.error("Routing Error:", e);
+                // หากดึงข้อมูลถนนไม่สำเร็จ ให้ Fallback กลับไปใช้ระยะทางเส้นตรง
+                calculateAndDrawRouteStraightLine(startPoint, unvisited);
+            }
+        }
+
+        // ระบบสำรอง หาก API เส้นทางถนนมีปัญหา (คำนวณแบบลากเส้นตรงผ่าน Leaflet)
+        function calculateAndDrawRouteStraightLine(startPoint, unvisited) {
+            let path = [startPoint];
+            let currentPoint = startPoint;
+
             while (unvisited.length > 0) {
                 let nearestPoint = null;
                 let minDistance = Infinity;
@@ -939,47 +1106,41 @@
 
                 for (let i = 0; i < unvisited.length; i++) {
                     const target = unvisited[i];
-                    // คำนวณระยะทางแม่นยำเป็นเมตร (Metres) ด้วย Leaflet
                     const dist = map.distance([currentPoint.lat, currentPoint.lng], [target.lat, target.lng]);
-                    
                     if (dist < minDistance) {
                         minDistance = dist;
                         nearestPoint = target;
                         nearestIndex = i;
                     }
                 }
-
                 path.push(nearestPoint);
                 currentPoint = nearestPoint;
                 unvisited.splice(nearestIndex, 1);
             }
 
-            // วาดเส้นลงบนแผนที่
             clearRoute();
-
             const latlngs = path.map(p => [p.lat, p.lng]);
-            
             routeLayer = L.polyline(latlngs, {
-                color: '#3b82f6', // สีฟ้า blue-500
+                color: '#f59e0b', // สีส้ม
                 weight: 4,
-                dashArray: '10, 10', // เส้นประ
+                dashArray: '10, 10',
                 opacity: 0.9,
-                className: 'route-line' // ทำให้เส้นกระพริบวิ่งได้ด้วย CSS (Animation)
+                className: 'route-line'
             }).addTo(map);
 
-            // ขยับแผนที่ให้อยู่ตรงกลางเส้นทางพอดี
             map.fitBounds(routeLayer.getBounds(), { padding: [50, 50] });
 
-            // สรุปลำดับการเดินทางในหน้าต่าง
             const orderText = path.map((p, index) => {
-                if (index === 0) return `<div class="mb-1 text-emerald-700"><b>จุดเริ่มต้น:</b> จุดที่ ${p.id}</div>`;
-                return `<div class="mb-1 text-gray-700 pl-4"><i class="fa-solid fa-arrow-down mr-2 text-gray-400"></i><b>ลำดับที่ ${index+1}:</b> จุดที่ ${p.id}</div>`;
+                const name = p.id === 'current' ? '📍 ตำแหน่งปัจจุบันของคุณ' : `จุดที่ ${p.id}`;
+                if (index === 0) return `<div class="mb-1 text-emerald-700"><b>จุดเริ่มต้น:</b> ${name}</div>`;
+                return `<div class="mb-1 text-gray-700 pl-4"><i class="fa-solid fa-arrow-down mr-2 text-gray-400"></i><b>ลำดับที่ ${index+1}:</b> ${name}</div>`;
             }).join('');
 
             Swal.fire({
-                title: 'แผนการเดินทางเสร็จสมบูรณ์',
-                html: `<div class="text-left text-sm h-56 overflow-y-auto bg-gray-50 p-3 rounded border">${orderText}</div>`,
-                icon: 'success',
+                title: 'ใช้ระยะทางเส้นตรง (ออฟไลน์)',
+                text: 'ไม่สามารถดึงข้อมูลถนนจริงได้ จึงใช้ระยะทางเส้นตรงในการจัดลำดับแทน',
+                html: `<div class="text-left text-sm h-48 overflow-y-auto bg-gray-50 p-3 rounded border mt-3">${orderText}</div>`,
+                icon: 'warning',
                 confirmButtonText: 'ตกลง'
             });
         }
