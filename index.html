@@ -90,7 +90,7 @@
             <h1 class="text-lg md:text-xl font-semibold truncate">ระบบวางแผนการเก็บตัวอย่างดิน</h1>
         </div>
         <div class="text-sm text-emerald-100 hidden md:block">
-            Design by AAAMACKY
+            Advanced Soil Sampling Planner
         </div>
     </header>
 
@@ -324,6 +324,9 @@
         let currentLocationCircle = null; // เก็บรัศมีความแม่นยำ
         let currentPlannedRoute = null; // ตัวแปรเก็บข้อมูลเส้นทางที่คำนวณแล้วสำหรับแชร์
         
+        // ชุดสีสะท้อนแสงสำหรับวาดเส้นทางให้โดดเด่นตัดกับดาวเทียม
+        const segmentColors = ['#FF1493', '#00FFFF', '#FFFF00', '#39FF14', '#FF9900', '#CC00FF', '#FF0000', '#00FF00', '#FFD700', '#00BFFF'];
+
         // ระบบจัดเก็บ Shapefile หลาย Layer
         let shpLayers = {}; 
         let activeShpId = null;
@@ -1066,7 +1069,7 @@
                 return;
             }
 
-            Swal.fire({ title: 'กำลังคำนวณเส้นทางจริง...อาจใช้เวลาสักครู่ ไม่เกิน 2 นาทีใจเย็นๆ', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+            Swal.fire({ title: 'กำลังคำนวณเส้นทางจริง...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
 
             try {
                 // ใช้ OSRM Table API เพื่อดึงตารางระยะทาง (Distance Matrix) ระหว่างทุกจุด
@@ -1105,25 +1108,55 @@
                     remainingIndices = remainingIndices.filter(idx => idx !== nearestIdxInNodes);
                 }
                 
-                // 2. เรียก OSRM Route API เพื่อวาดเส้นเรขาคณิต (Geometry) แบบไปตามถนนจริง
-                const sortedCoordString = path.map(p => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
-                const routeRes = await fetch(`https://router.project-osrm.org/route/v1/driving/${sortedCoordString}?overview=full&geometries=geojson`);
-                const routeData = await routeRes.json();
-
-                if(routeData.code !== 'Ok') throw new Error("OSRM Route API Error");
-
+                // 2. เรียก OSRM Route API สำหรับทุก Segment แบบเรียงลำดับ
                 clearRoute();
+                routeLayer = L.featureGroup().addTo(map);
+                let totalDist = 0;
+                let totalDur = 0;
 
-                // วาดเส้นทางลงบนแผนที่
-                routeLayer = L.geoJSON(routeData.routes[0].geometry, {
-                    style: {
-                        color: '#3b82f6', // สีฟ้า
-                        weight: 5,
-                        opacity: 0.8,
-                        dashArray: '10, 10',
-                        className: 'route-line'
+                const segmentColors = ['#FF1493', '#00FFFF', '#FFFF00', '#39FF14', '#FF9900', '#CC00FF', '#FF0000', '#00FF00', '#FFD700', '#00BFFF'];
+
+                for (let i = 0; i < path.length - 1; i++) {
+                    const p1 = path[i];
+                    const p2 = path[i+1];
+                    const segColor = segmentColors[i % segmentColors.length];
+                    const url = `https://router.project-osrm.org/route/v1/driving/${p1.lng.toFixed(6)},${p1.lat.toFixed(6)};${p2.lng.toFixed(6)},${p2.lat.toFixed(6)}?overview=full&geometries=geojson`;
+                    
+                    try {
+                        const res = await fetch(url);
+                        const routeData = await res.json();
+                        
+                        if(routeData.code === 'Ok') {
+                            totalDist += routeData.routes[0].distance;
+                            totalDur += routeData.routes[0].duration;
+                            
+                            // วาดเงาสีดำขอบนอก (Outline) เพื่อให้เด่นชัด
+                            L.geoJSON(routeData.routes[0].geometry, {
+                                style: { color: '#000000', weight: 8, opacity: 0.7 }
+                            }).addTo(routeLayer);
+
+                            // วาดเส้นสีทับด้านใน
+                            L.geoJSON(routeData.routes[0].geometry, {
+                                style: { color: segColor, weight: 5, opacity: 1.0, dashArray: '10, 10', className: 'route-line' }
+                            }).addTo(routeLayer);
+                        } else {
+                            throw new Error("Segment failed");
+                        }
+                    } catch (err) {
+                        // Fallback to straight line for this segment
+                        const dist = map.distance([p1.lat, p1.lng], [p2.lat, p2.lng]);
+                        totalDist += dist;
+                        totalDur += (dist / 1000) * 2; // Estimate 2 mins per km
+
+                        L.polyline([[p1.lat, p1.lng], [p2.lat, p2.lng]], {
+                            color: '#000000', weight: 8, opacity: 0.7
+                        }).addTo(routeLayer);
+
+                        L.polyline([[p1.lat, p1.lng], [p2.lat, p2.lng]], {
+                            color: segColor, weight: 5, dashArray: '10, 10', opacity: 1.0, className: 'route-line'
+                        }).addTo(routeLayer);
                     }
-                }).addTo(map);
+                }
 
                 map.fitBounds(routeLayer.getBounds(), { padding: [50, 50] });
                 
@@ -1131,14 +1164,27 @@
                 enableShareRoute(path);
 
                 // 3. สรุปลำดับการเดินทางในหน้าต่าง
-                const orderText = path.map((p, index) => {
+                let orderText = '';
+                for(let i=0; i<path.length; i++) {
+                    const p = path[i];
                     const name = p.id === 'current' ? '📍 ตำแหน่งปัจจุบันของคุณ' : `จุดที่ ${p.id}`;
-                    if (index === 0) return `<div class="mb-1 text-emerald-700"><b>จุดเริ่มต้น:</b> ${name}</div>`;
-                    return `<div class="mb-1 text-gray-700 pl-4"><i class="fa-solid fa-arrow-down mr-2 text-gray-400"></i><b>ลำดับที่ ${index}:</b> ${name}</div>`;
-                }).join('');
+                    
+                    if(i === 0) {
+                        orderText += `<div class="text-emerald-700 font-bold mb-1 text-base">🚗 จุดเริ่มต้น: ${name}</div>`;
+                    } else {
+                        const segColor = segmentColors[(i-1) % segmentColors.length];
+                        orderText += `
+                        <div class="ml-2 pl-4 py-2" style="border-left: 4px dashed ${segColor};">
+                            <span class="text-[10px] font-bold px-2 py-1 rounded border border-gray-400 shadow-sm" style="background-color: ${segColor}; color: #000; text-shadow: 0px 0px 2px #fff;">เส้นทางที่ ${i}</span>
+                        </div>
+                        <div class="text-gray-800 font-bold mb-1 text-base">
+                            🎯 ลำดับที่ ${i}: ${name}
+                        </div>`;
+                    }
+                }
 
-                const distanceKm = (routeData.routes[0].distance / 1000).toFixed(2);
-                const durationMin = Math.round(routeData.routes[0].duration / 60);
+                const distanceKm = (totalDist / 1000).toFixed(2);
+                const durationMin = Math.round(totalDur / 60);
 
                 Swal.fire({
                     title: 'แผนการเดินทางเสร็จสมบูรณ์',
@@ -1192,30 +1238,51 @@
             }
 
             clearRoute();
-            const latlngs = path.map(p => [p.lat, p.lng]);
-            routeLayer = L.polyline(latlngs, {
-                color: '#f59e0b', // สีส้ม
-                weight: 4,
-                dashArray: '10, 10',
-                opacity: 0.9,
-                className: 'route-line'
-            }).addTo(map);
+            routeLayer = L.featureGroup().addTo(map);
+            const segmentColors = ['#FF1493', '#00FFFF', '#FFFF00', '#39FF14', '#FF9900', '#CC00FF', '#FF0000', '#00FF00', '#FFD700', '#00BFFF'];
+
+            for (let i = 0; i < path.length - 1; i++) {
+                const p1 = path[i];
+                const p2 = path[i+1];
+                const segColor = segmentColors[i % segmentColors.length];
+                
+                L.polyline([[p1.lat, p1.lng], [p2.lat, p2.lng]], {
+                    color: '#000000', weight: 8, opacity: 0.7
+                }).addTo(routeLayer);
+
+                L.polyline([[p1.lat, p1.lng], [p2.lat, p2.lng]], {
+                    color: segColor, weight: 5, dashArray: '10, 10', opacity: 1.0, className: 'route-line'
+                }).addTo(routeLayer);
+            }
 
             map.fitBounds(routeLayer.getBounds(), { padding: [50, 50] });
             
             // เก็บข้อมูลแผนเดินทางเพื่อให้สามารถแชร์ได้
             enableShareRoute(path);
 
-            const orderText = path.map((p, index) => {
+            let orderText = '';
+            for(let i=0; i<path.length; i++) {
+                const p = path[i];
                 const name = p.id === 'current' ? '📍 ตำแหน่งปัจจุบันของคุณ' : `จุดที่ ${p.id}`;
-                if (index === 0) return `<div class="mb-1 text-emerald-700"><b>จุดเริ่มต้น:</b> ${name}</div>`;
-                return `<div class="mb-1 text-gray-700 pl-4"><i class="fa-solid fa-arrow-down mr-2 text-gray-400"></i><b>ลำดับที่ ${index}:</b> ${name}</div>`;
-            }).join('');
+                
+                if(i === 0) {
+                    orderText += `<div class="text-emerald-700 font-bold mb-1 text-base">🚗 จุดเริ่มต้น: ${name}</div>`;
+                } else {
+                    const segColor = segmentColors[(i-1) % segmentColors.length];
+                    orderText += `
+                    <div class="ml-2 pl-4 py-2" style="border-left: 4px dashed ${segColor};">
+                        <span class="text-[10px] font-bold px-2 py-1 rounded border border-gray-400 shadow-sm" style="background-color: ${segColor}; color: #000; text-shadow: 0px 0px 2px #fff;">เส้นทางที่ ${i}</span>
+                    </div>
+                    <div class="text-gray-800 font-bold mb-1 text-base">
+                        🎯 ลำดับที่ ${i}: ${name}
+                    </div>`;
+                }
+            }
 
             Swal.fire({
                 title: 'ใช้ระยะทางเส้นตรง (ออฟไลน์)',
                 text: 'ไม่สามารถดึงข้อมูลถนนจริงได้ จึงใช้ระยะทางเส้นตรงในการจัดลำดับแทน',
-                html: `<div class="text-left text-sm h-48 overflow-y-auto bg-gray-50 p-3 rounded border mt-3 mb-3">${orderText}</div>`,
+                html: `<div class="text-left text-sm h-64 overflow-y-auto bg-gray-50 p-3 rounded border mt-3 mb-3">${orderText}</div>`,
                 icon: 'warning',
                 showCancelButton: true,
                 confirmButtonText: '<i class="fa-solid fa-share-nodes"></i> แชร์แผนเดินทาง',
