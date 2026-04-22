@@ -90,7 +90,7 @@
             <h1 class="text-lg md:text-xl font-semibold truncate">ระบบวางแผนการเก็บตัวอย่างดิน</h1>
         </div>
         <div class="text-sm text-emerald-100 hidden md:block">
-            Design by AAAMACKั
+            Advanced Soil Sampling Planner
         </div>
     </header>
 
@@ -138,10 +138,15 @@
                 <label class="block text-sm font-medium text-gray-700 mb-2">
                     <i class="fa-solid fa-layer-group text-emerald-600 mr-2"></i>ชั้นข้อมูลแผนที่ (Shapefile)
                 </label>
+                
+                <div class="bg-blue-50 border border-blue-100 rounded p-2 mb-2 text-[10px] text-blue-800 leading-tight">
+                    <b><i class="fa-solid fa-circle-info"></i> รูปแบบไฟล์ที่รองรับ:</b> นำไฟล์ <code>.shp</code>, <code>.shx</code>, <code>.dbf</code> และ <code>.prj</code> บีบอัดรวมเป็นไฟล์ <b>.zip</b> เดียว <span class="text-blue-600">(* แนะนำให้ตั้งระบบพิกัดไฟล์เป็น WGS84 EPSG:4326)</span>
+                </div>
+                
                 <input type="file" id="shp-upload" accept=".zip,.rar" class="block w-full text-xs text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 mb-2 cursor-pointer">
                 
                 <!-- รายการชั้นข้อมูลที่ถูกอัปโหลด -->
-                <ul id="loaded-shp-list" class="space-y-1 max-h-32 overflow-y-auto mb-2">
+                <ul id="loaded-shp-list" class="space-y-1 max-h-40 overflow-y-auto mb-2">
                     <!-- รายการ Layer จะถูกเพิ่มที่นี่ -->
                 </ul>
 
@@ -213,18 +218,21 @@
             <!-- 4. Data Import/Export (Excel/CSV) -->
             <div class="p-3 border-b border-gray-100 shrink-0">
                 <label class="block text-sm font-medium text-gray-700 mb-2">
-                    <i class="fa-solid fa-file-excel text-emerald-600 mr-2"></i>จัดการข้อมูลปักจุด (Excel/CSV)
+                    <i class="fa-solid fa-file-export text-emerald-600 mr-2"></i>จัดการข้อมูลปักจุด
                 </label>
-                <div class="flex gap-2 mb-2">
-                    <label class="flex-1 bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 text-xs py-1.5 px-2 rounded text-center cursor-pointer transition">
-                        <i class="fa-solid fa-upload"></i> Import จุด
+                <div class="grid grid-cols-2 gap-2 mb-2">
+                    <label class="col-span-2 bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 text-xs py-1.5 px-2 rounded text-center cursor-pointer transition flex items-center justify-center gap-1">
+                        <i class="fa-solid fa-upload"></i> นำเข้าจุด (Excel/CSV)
                         <input type="file" id="excel-upload" accept=".xlsx, .xls, .csv" class="hidden">
                     </label>
-                    <button id="export-excel-btn" class="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs py-1.5 px-2 rounded text-center transition">
-                        <i class="fa-solid fa-download"></i> Export จุด
+                    <button id="export-excel-btn" class="bg-green-600 hover:bg-green-700 text-white text-xs py-1.5 px-2 rounded text-center transition flex items-center justify-center gap-1">
+                        <i class="fa-solid fa-file-excel"></i> ส่งออก Excel
+                    </button>
+                    <button id="export-shp-btn" class="bg-blue-600 hover:bg-blue-700 text-white text-xs py-1.5 px-2 rounded text-center transition flex items-center justify-center gap-1" title="ส่งออกเป็น Shapefile (.zip)">
+                        <i class="fa-solid fa-map-location-dot"></i> ส่งออก SHP
                     </button>
                 </div>
-                <p class="text-[10px] text-gray-400">* ไฟล์ต้องมีคอลัมน์ชื่อ Lat และ Lng</p>
+                <p class="text-[10px] text-gray-400">* ไฟล์นำเข้าต้องมีคอลัมน์ชื่อ Lat และ Lng</p>
             </div>
 
             <!-- 5. Map Actions (Tools) -->
@@ -283,13 +291,18 @@
     <script src="https://unpkg.com/shpjs@latest/dist/shp.min.js"></script>
     <!-- SheetJS for Excel/CSV Import/Export -->
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+    <!-- shp-write for Exporting Shapefile -->
+    <script src="https://unpkg.com/@mapbox/shp-write@latest/shpwrite.js"></script>
 
     <script>
         // --- 1. Map Initialization & Layers ---
         const map = L.map('map', {
             center: [13.736717, 100.523186],
             zoom: 6,
-            preferCanvas: true
+            preferCanvas: true,
+            zoomSnap: 0.25,      // การซูมที่ละเอียดขึ้น (รองรับเศษส่วน)
+            zoomDelta: 0.25,     // ขยับทีละสเต็ปสั้นๆ เมื่อหมุนลูกกลิ้งเมาส์
+            wheelPxPerZoomLevel: 100 // ทำให้ควบคุมเมาส์ง่ายขึ้นเวลาซูม
         });
 
         // Layer: แผนที่ภูมิประเทศ (Terrain) - ของ Google Maps 
@@ -329,6 +342,7 @@
 
         // ระบบจัดเก็บ Shapefile หลาย Layer
         let shpLayers = {}; 
+        let shpLayerOrder = []; // ใช้เก็บลำดับของ Layer สำหรับการแสดงซ้อนทับ (Z-Index)
         let activeShpId = null;
 
         // --- 3. Dynamic Point Styling Functions ---
@@ -359,6 +373,18 @@
 
 
         // --- 4. Advanced Shapefile Logic (Multiple Layers & Points) ---
+        
+        // จัดลำดับ Z-Index ให้ชั้นข้อมูลตามลำดับใน Array (ตัวสุดท้ายจะอยู่บนสุด)
+        function applyLayerZIndex() {
+            shpLayerOrder.forEach(id => {
+                if (shpLayers[id] && shpLayers[id].layer) {
+                    shpLayers[id].layer.bringToFront();
+                }
+            });
+            // เอาเส้นเดินทางและจุดไว้ชั้นบนสุดเสมอ
+            if (routeLayer) routeLayer.bringToFront();
+        }
+
         function getCategoryColor(catColorsObj, val) {
             if(!catColorsObj[val]) {
                 const hue = Math.floor(Math.random() * 360);
@@ -427,6 +453,9 @@
                     }
                 }
             }).addTo(map);
+
+            // เมื่อ Render เสร็จให้จัดเรียงลำดับใหม่
+            applyLayerZIndex();
         }
 
         // ฟังก์ชันเมื่อผู้ใช้กดอัปเดตการตั้งค่าของ Layer ที่เลือก
@@ -450,37 +479,72 @@
             document.getElementById('shp-point-size-val').textContent = e.target.value;
         });
 
-        // จัดการ UI รายการ Shapefile
+        // จัดการ UI รายการ Shapefile และปุ่มเลื่อนขึ้นลง
         function updateShapefileListUI() {
             const listEl = document.getElementById('loaded-shp-list');
             listEl.innerHTML = '';
             
-            const layerKeys = Object.keys(shpLayers);
-            if (layerKeys.length === 0) {
+            if (shpLayerOrder.length === 0) {
                 document.getElementById('shp-style-panel').classList.add('hidden');
                 activeShpId = null;
                 return;
             }
 
-            layerKeys.forEach(id => {
+            // แสดงย้อนกลับเพื่อให้ Item ด้านบนสุดใน UI เป็น Layer ที่อยู่ด้านหน้าสุดบนแผนที่
+            [...shpLayerOrder].reverse().forEach(id => {
                 const shp = shpLayers[id];
+                if(!shp) return;
+
                 const li = document.createElement('li');
                 const isActive = (id === activeShpId);
                 
                 li.className = `layer-item flex justify-between items-center p-2 rounded border cursor-pointer transition ${isActive ? 'active' : 'border-gray-200 bg-white hover:bg-gray-50'}`;
                 
                 li.innerHTML = `
-                    <div class="flex items-center gap-2 overflow-hidden w-full" onclick="selectShapefile('${id}')">
+                    <div class="flex items-center gap-2 overflow-hidden flex-1" onclick="selectShapefile('${id}')">
                         <span style="background-color:${shp.color};" class="w-3 h-3 rounded-full border border-gray-400 shrink-0"></span>
                         <span class="text-xs font-medium text-gray-700 truncate">${shp.name}</span>
                     </div>
-                    <button onclick="removeShapefile('${id}', event)" class="text-red-400 hover:text-red-600 p-1 shrink-0 ml-1" title="ลบข้อมูลนี้">
-                        <i class="fa-solid fa-xmark"></i>
-                    </button>
+                    <div class="flex items-center gap-0.5 shrink-0 ml-1">
+                        <button onclick="moveLayerUp('${id}', event)" class="text-gray-400 hover:text-emerald-600 p-1" title="เลื่อนชั้นนี้ขึ้น (ทับชั้นอื่น)">
+                            <i class="fa-solid fa-chevron-up"></i>
+                        </button>
+                        <button onclick="moveLayerDown('${id}', event)" class="text-gray-400 hover:text-emerald-600 p-1" title="เลื่อนชั้นนี้ลง (ซ่อนหลังชั้นอื่น)">
+                            <i class="fa-solid fa-chevron-down"></i>
+                        </button>
+                        <button onclick="removeShapefile('${id}', event)" class="text-red-400 hover:text-red-600 p-1 border-l border-gray-200 ml-1 pl-2" title="ลบข้อมูลนี้">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
                 `;
                 listEl.appendChild(li);
             });
         }
+
+        // ฟังก์ชันเลื่อนชั้นข้อมูลขึ้นมาทับด้านบน
+        window.moveLayerUp = function(id, e) {
+            e.stopPropagation();
+            const idx = shpLayerOrder.indexOf(id);
+            // ใน Array, index สูงสุดคือ Layer ที่อยู่ด้านหน้าสุด 
+            // เลื่อนขึ้นใน UI หมายถึง ขยับไปที่ index มากขึ้น
+            if (idx > -1 && idx < shpLayerOrder.length - 1) {
+                [shpLayerOrder[idx], shpLayerOrder[idx + 1]] = [shpLayerOrder[idx + 1], shpLayerOrder[idx]];
+                applyLayerZIndex();
+                updateShapefileListUI();
+            }
+        };
+
+        // ฟังก์ชันเลื่อนชั้นข้อมูลลงไปซ่อนด้านล่าง
+        window.moveLayerDown = function(id, e) {
+            e.stopPropagation();
+            const idx = shpLayerOrder.indexOf(id);
+            // เลื่อนลงใน UI หมายถึง ขยับไปที่ index น้อยลง (index 0 คือล่างสุด)
+            if (idx > 0) {
+                [shpLayerOrder[idx], shpLayerOrder[idx - 1]] = [shpLayerOrder[idx - 1], shpLayerOrder[idx]];
+                applyLayerZIndex();
+                updateShapefileListUI();
+            }
+        };
 
         // เลือก Shapefile เพื่อนำมาตั้งค่า
         window.selectShapefile = function(id) {
@@ -524,8 +588,11 @@
                 if(shpLayers[id].layer) map.removeLayer(shpLayers[id].layer);
                 delete shpLayers[id];
                 
+                // ลบออกจากคิวการจัดลำดับ
+                shpLayerOrder = shpLayerOrder.filter(item => item !== id);
+                
                 if (activeShpId === id) {
-                    activeShpId = Object.keys(shpLayers)[0] || null; // เลือกอันบนสุดแทนถ้ามี
+                    activeShpId = shpLayerOrder[shpLayerOrder.length - 1] || null; // เลือกอันบนสุดแทนถ้ามี
                     if (activeShpId) {
                         selectShapefile(activeShpId);
                     } else {
@@ -585,6 +652,9 @@
                         labelField: '',
                         propertiesKeys: propsKeys
                     };
+                    
+                    // เพิ่มคิวให้ไปอยู่ด้านบนสุด
+                    shpLayerOrder.push(id);
 
                     renderSingleShapefile(id);
                     map.fitBounds(shpLayers[id].layer.getBounds());
@@ -756,9 +826,9 @@
                     const lng = position.coords.longitude;
                     const accuracy = position.coords.accuracy;
 
-                    // ลบจุดแสดงตำแหน่งเดิมถ้ามี
-                    if (currentLocationMarker) map.removeLayer(currentLocationMarker);
-                    if (currentLocationCircle) map.removeLayer(currentLocationCircle);
+                    // ไม่ต้องลบจุดเก่า (ตามคำขอ)
+                    // if (currentLocationMarker) map.removeLayer(currentLocationMarker);
+                    // if (currentLocationCircle) map.removeLayer(currentLocationCircle);
 
                     // สร้างไอคอนสีน้ำเงินที่โดดเด่น
                     const locIcon = L.divIcon({
@@ -774,9 +844,17 @@
                     
                     currentLocationCircle = L.circle([lat, lng], { radius: accuracy, color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.15, weight: 1 }).addTo(map);
 
-                    // เลื่อนแผนที่ไปที่ตำแหน่งนั้น
-                    map.flyTo([lat, lng], 16, { duration: 1.5 });
+                    // ไม่ต้องเด้งไปหาตำแหน่งปัจจุบัน (ตามคำขอ)
+                    // map.flyTo([lat, lng], 16, { duration: 1.5 });
+                    
                     Swal.close();
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'สำเร็จ',
+                        text: 'วางจุดตำแหน่งปัจจุบันลงบนแผนที่แล้ว',
+                        timer: 1500,
+                        showConfirmButton: false
+                    });
                 },
                 (error) => {
                     console.error("Geolocation Error Code:", error.code, "Message:", error.message);
@@ -908,7 +986,7 @@
             });
         };
 
-        // --- 7. Import / Export Excel & CSV ---
+        // --- 7. Import / Export Excel & CSV & SHP ---
         // Export
         document.getElementById('export-excel-btn').addEventListener('click', () => {
             if(samplePoints.length === 0) return Swal.fire('แจ้งเตือน', 'ไม่มีจุดให้ Export', 'info');
@@ -927,6 +1005,51 @@
             
             // สร้างไฟล์ดาวน์โหลด
             XLSX.writeFile(workbook, `Soil_Points_${new Date().getTime()}.xlsx`);
+        });
+
+        // Export SHP
+        document.getElementById('export-shp-btn').addEventListener('click', () => {
+            if(samplePoints.length === 0) return Swal.fire('แจ้งเตือน', 'ไม่มีจุดให้ Export', 'info');
+
+            Swal.fire({ title: 'กำลังสร้างไฟล์ Shapefile...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+
+            try {
+                // สร้าง GeoJSON จากจุดทั้งหมด
+                const geojson = {
+                    type: "FeatureCollection",
+                    features: samplePoints.map(p => ({
+                        type: "Feature",
+                        geometry: {
+                            type: "Point",
+                            coordinates: [p.lng, p.lat] // GeoJSON ใช้ [Lng, Lat]
+                        },
+                        properties: {
+                            Point_ID: p.id,
+                            Latitude: p.lat,
+                            Longitude: p.lng,
+                            Name: `Point ${p.id}`
+                        }
+                    }))
+                };
+
+                // กำหนด options สำหรับ shpwrite (จะสร้างไฟล์ .zip ให้อัตโนมัติในระบบ WGS84 EPSG:4326)
+                const options = {
+                    folder: 'Soil_Sample_Points',
+                    types: {
+                        point: 'Soil_Points',
+                        polygon: false,
+                        line: false
+                    }
+                };
+
+                // shpwrite ทำการแปลงและดาวน์โหลด .zip ทันที
+                shpwrite.download(geojson, options);
+                
+                Swal.fire({ icon: 'success', title: 'สำเร็จ', text: 'ดาวน์โหลดไฟล์ Shapefile เรียบร้อยแล้ว', timer: 2000, showConfirmButton: false });
+            } catch (error) {
+                console.error("Export SHP Error:", error);
+                Swal.fire('ข้อผิดพลาด', 'ไม่สามารถสร้างไฟล์ Shapefile ได้', 'error');
+            }
         });
 
         // Import
@@ -1020,8 +1143,8 @@
                     const accuracy = loc.coords.accuracy;
 
                     // วาดจุดตำแหน่งปัจจุบันให้เห็นด้วย
-                    if (currentLocationMarker) map.removeLayer(currentLocationMarker);
-                    if (currentLocationCircle) map.removeLayer(currentLocationCircle);
+                    // if (currentLocationMarker) map.removeLayer(currentLocationMarker);
+                    // if (currentLocationCircle) map.removeLayer(currentLocationCircle);
 
                     const locIcon = L.divIcon({
                         className: 'current-loc-icon',
@@ -1069,7 +1192,7 @@
                 return;
             }
 
-            Swal.fire({ title: 'กำลังคำนวณ ใจเย็นรอแป๊ปไม่เกิน 2 นาที ครับ', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+            Swal.fire({ title: 'กำลังคำนวณเส้นทางจริง...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
 
             try {
                 // ใช้ OSRM Table API เพื่อดึงตารางระยะทาง (Distance Matrix) ระหว่างทุกจุด
@@ -1321,11 +1444,11 @@
                     pointIdCounter = 1; 
                     updatePointsList();
 
-                    // ลบจุดตำแหน่งปัจจุบันออกด้วย (ถ้ามี)
-                    if (currentLocationMarker) map.removeLayer(currentLocationMarker);
-                    if (currentLocationCircle) map.removeLayer(currentLocationCircle);
-                    currentLocationMarker = null;
-                    currentLocationCircle = null;
+                    // ไม่ต้องลบจุดตำแหน่งปัจจุบัน (ตามคำขอ)
+                    // if (currentLocationMarker) map.removeLayer(currentLocationMarker);
+                    // if (currentLocationCircle) map.removeLayer(currentLocationCircle);
+                    // currentLocationMarker = null;
+                    // currentLocationCircle = null;
                     
                     Swal.fire('สำเร็จ', 'ล้างข้อมูลจุดที่ปักเรียบร้อยแล้ว', 'success');
                 }
