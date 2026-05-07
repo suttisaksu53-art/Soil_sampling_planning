@@ -145,8 +145,8 @@
                 
                 <input type="file" id="shp-upload" accept=".zip,.rar" class="block w-full text-xs text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 mb-2 cursor-pointer">
                 
-                <!-- รายการชั้นข้อมูลที่ถูกอัปโหลด -->
-                <ul id="loaded-shp-list" class="space-y-1 max-h-40 overflow-y-auto mb-2">
+                <!-- รายการชั้นข้อมูลที่ถูกอัปโหลด (ปรับลดความสูงให้เลื่อนดูง่ายขึ้น) -->
+                <ul id="loaded-shp-list" class="space-y-1 max-h-48 overflow-y-auto mb-2">
                     <!-- รายการ Layer จะถูกเพิ่มที่นี่ -->
                 </ul>
 
@@ -215,7 +215,7 @@
                 </div>
             </div>
 
-            <!-- 4. Data Import/Export (Excel/CSV) -->
+            <!-- 4. Data Import/Export (Excel/CSV/SHP) -->
             <div class="p-3 border-b border-gray-100 shrink-0">
                 <label class="block text-sm font-medium text-gray-700 mb-2">
                     <i class="fa-solid fa-file-export text-emerald-600 mr-2"></i>จัดการข้อมูลปักจุด
@@ -249,12 +249,16 @@
                     <button id="share-route-btn" class="w-full bg-indigo-500 text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition opacity-50 cursor-not-allowed" disabled title="ต้องวางแผนเส้นทางก่อน จึงจะแชร์ได้">
                         <i class="fa-solid fa-share-nodes"></i> แชร์แผนเดินทาง
                     </button>
+                    <button id="share-line-btn" class="w-full bg-[#00B900] hover:bg-[#009900] text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition" title="แชร์ข้อมูลจุดทั้งหมด (ไม่เรียงลำดับ) พร้อมลิงก์ฝังพิกัด">
+                        <i class="fa-brands fa-line text-sm"></i> แชร์ลิงก์/พิกัด
+                    </button>
+                    <!-- นำปุ่ม Save ภาพแผนที่ กลับมา -->
+                    <button id="export-img-btn" class="w-full bg-orange-500 hover:bg-orange-600 text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition" title="บันทึกแผนที่เป็นภาพ Layout">
+                        <i class="fa-solid fa-image"></i> Save รูป
+                    </button>
                 </div>
 
-                <div class="grid grid-cols-2 gap-2">
-                    <button id="share-line-btn" class="w-full bg-[#00B900] hover:bg-[#009900] text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition" title="แชร์ข้อมูลจุดทั้งหมด (ไม่เรียงลำดับ)">
-                        <i class="fa-brands fa-line text-sm"></i> แชร์พิกัดจุด
-                    </button>
+                <div class="mt-2">
                     <button id="clear-btn" class="w-full bg-red-500 hover:bg-red-600 text-white text-xs py-2 rounded shadow flex items-center justify-center gap-1 transition">
                         <i class="fa-solid fa-trash-can"></i> ล้างกระดาน
                     </button>
@@ -279,7 +283,7 @@
 
         <!-- Map Container -->
         <div class="flex-1 relative w-full h-full" id="map-wrapper">
-            <div id="map" class="absolute inset-0"></div>
+            <div id="map" class="absolute inset-0 bg-white"></div>
         </div>
         
     </main>
@@ -287,12 +291,26 @@
     <!-- Scripts -->
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- html2canvas for Layout Exporting (Save รูป) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <!-- shp-write for Exporting Shapefile (LOADED BEFORE SheetJS to prevent JSZip collision) -->
+    <script src="https://unpkg.com/shp-write@0.3.2/shpwrite.js"></script>
+    <script>
+        // เก็บ JSZip v2 ของ shpwrite ไว้ก่อนที่ไลบรารีอื่นจะมาทับ
+        window.__JSZip_v2 = window.JSZip;
+    </script>
+    
     <!-- shpjs for Shapefile Parsing -->
     <script src="https://unpkg.com/shpjs@latest/dist/shp.min.js"></script>
-    <!-- SheetJS for Excel/CSV Import/Export -->
+    
+    <!-- SheetJS for Excel/CSV Import/Export (Loads internal JSZip v3 which broke shpwrite) -->
     <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
-    <!-- shp-write for Exporting Shapefile -->
-    <script src="https://unpkg.com/@mapbox/shp-write@latest/shpwrite.js"></script>
+    <script>
+        // เก็บ JSZip v3 (ของ SheetJS/shpjs) ไว้
+        window.__JSZip_v3 = window.JSZip;
+    </script>
 
     <script>
         // --- 1. Map Initialization & Layers ---
@@ -307,12 +325,12 @@
 
         // Layer: แผนที่ภูมิประเทศ (Terrain) - ของ Google Maps 
         const terrainLayer = L.tileLayer('https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {
-            maxZoom: 20, attribution: '&copy; Google Maps'
+            maxZoom: 20, attribution: '&copy; Google Maps', crossOrigin: true
         });
 
         // Layer: แผนที่ดาวเทียมพร้อมเส้นถนนและป้ายชื่อ (Satellite Hybrid) - ของ Google Maps
         const satelliteLayer = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
-            maxZoom: 20, attribution: '&copy; Google Maps'
+            maxZoom: 20, attribution: '&copy; Google Maps', crossOrigin: true
         });
 
         // Set default layer to Satellite
@@ -377,8 +395,9 @@
         // จัดลำดับ Z-Index ให้ชั้นข้อมูลตามลำดับใน Array (ตัวสุดท้ายจะอยู่บนสุด)
         function applyLayerZIndex() {
             shpLayerOrder.forEach(id => {
-                if (shpLayers[id] && shpLayers[id].layer) {
-                    shpLayers[id].layer.bringToFront();
+                const shp = shpLayers[id];
+                if (shp && shp.layer && map.hasLayer(shp.layer)) {
+                    shp.layer.bringToFront();
                 }
             });
             // เอาเส้นเดินทางและจุดไว้ชั้นบนสุดเสมอ
@@ -452,7 +471,12 @@
                         layer.bindPopup(popupHtml);
                     }
                 }
-            }).addTo(map);
+            });
+
+            // ตรวจสอบสถานะการโชว์/ซ่อน ก่อนวางลงแผนที่
+            if (shpData.visible !== false) {
+                shpData.layer.addTo(map);
+            }
 
             // เมื่อ Render เสร็จให้จัดเรียงลำดับใหม่
             applyLayerZIndex();
@@ -479,7 +503,7 @@
             document.getElementById('shp-point-size-val').textContent = e.target.value;
         });
 
-        // จัดการ UI รายการ Shapefile และปุ่มเลื่อนขึ้นลง
+        // จัดการ UI รายการ Shapefile (ปรับขนาดให้เล็กลง และเพิ่มปุ่ม เปิด/ปิด ตา)
         function updateShapefileListUI() {
             const listEl = document.getElementById('loaded-shp-list');
             listEl.innerHTML = '';
@@ -497,29 +521,53 @@
 
                 const li = document.createElement('li');
                 const isActive = (id === activeShpId);
+                const isVisible = shp.visible !== false;
                 
-                li.className = `layer-item flex justify-between items-center p-2 rounded border cursor-pointer transition ${isActive ? 'active' : 'border-gray-200 bg-white hover:bg-gray-50'}`;
+                // ปรับ Padding และ Text Size ให้เล็กลง
+                li.className = `layer-item flex justify-between items-center py-1.5 px-2 rounded border cursor-pointer transition ${isActive ? 'active' : 'border-gray-200 bg-white hover:bg-gray-50'} ${isVisible ? '' : 'opacity-60 grayscale'}`;
                 
+                const eyeIcon = isVisible ? 'fa-eye text-emerald-600' : 'fa-eye-slash text-gray-400';
+
                 li.innerHTML = `
-                    <div class="flex items-center gap-2 overflow-hidden flex-1" onclick="selectShapefile('${id}')">
-                        <span style="background-color:${shp.color};" class="w-3 h-3 rounded-full border border-gray-400 shrink-0"></span>
-                        <span class="text-xs font-medium text-gray-700 truncate">${shp.name}</span>
+                    <div class="flex items-center gap-1.5 overflow-hidden flex-1" onclick="selectShapefile('${id}')">
+                        <span style="background-color:${shp.color};" class="w-2.5 h-2.5 rounded-full border border-gray-400 shrink-0"></span>
+                        <span class="text-[11px] font-medium text-gray-700 truncate leading-tight">${shp.name}</span>
                     </div>
-                    <div class="flex items-center gap-0.5 shrink-0 ml-1">
-                        <button onclick="moveLayerUp('${id}', event)" class="text-gray-400 hover:text-emerald-600 p-1" title="เลื่อนชั้นนี้ขึ้น (ทับชั้นอื่น)">
-                            <i class="fa-solid fa-chevron-up"></i>
+                    <div class="flex items-center shrink-0 ml-1">
+                        <button onclick="toggleLayerVisibility('${id}', event)" class="hover:text-emerald-600 px-1" title="ซ่อน/แสดงชั้นข้อมูล">
+                            <i class="fa-solid ${eyeIcon} text-[10px]"></i>
                         </button>
-                        <button onclick="moveLayerDown('${id}', event)" class="text-gray-400 hover:text-emerald-600 p-1" title="เลื่อนชั้นนี้ลง (ซ่อนหลังชั้นอื่น)">
-                            <i class="fa-solid fa-chevron-down"></i>
+                        <button onclick="moveLayerUp('${id}', event)" class="text-gray-400 hover:text-emerald-600 px-1" title="เลื่อนชั้นนี้ขึ้น (ทับชั้นอื่น)">
+                            <i class="fa-solid fa-chevron-up text-[10px]"></i>
                         </button>
-                        <button onclick="removeShapefile('${id}', event)" class="text-red-400 hover:text-red-600 p-1 border-l border-gray-200 ml-1 pl-2" title="ลบข้อมูลนี้">
-                            <i class="fa-solid fa-xmark"></i>
+                        <button onclick="moveLayerDown('${id}', event)" class="text-gray-400 hover:text-emerald-600 px-1" title="เลื่อนชั้นนี้ลง (ซ่อนหลังชั้นอื่น)">
+                            <i class="fa-solid fa-chevron-down text-[10px]"></i>
+                        </button>
+                        <button onclick="removeShapefile('${id}', event)" class="text-red-400 hover:text-red-600 px-1 border-l border-gray-200 ml-1 pl-1.5" title="ลบข้อมูลนี้">
+                            <i class="fa-solid fa-xmark text-sm"></i>
                         </button>
                     </div>
                 `;
                 listEl.appendChild(li);
             });
         }
+
+        // ฟังก์ชัน เปิด/ปิด ชั้นข้อมูล
+        window.toggleLayerVisibility = function(id, e) {
+            e.stopPropagation();
+            const shp = shpLayers[id];
+            if (!shp) return;
+
+            shp.visible = !(shp.visible !== false); // สลับสถานะ (ค่าเริ่มต้นถือว่า true)
+
+            if (shp.visible) {
+                if(shp.layer) map.addLayer(shp.layer);
+                applyLayerZIndex(); // จัดลำดับให้ถูกต้องเวลาเปิดกลับมา
+            } else {
+                if(shp.layer) map.removeLayer(shp.layer);
+            }
+            updateShapefileListUI();
+        };
 
         // ฟังก์ชันเลื่อนชั้นข้อมูลขึ้นมาทับด้านบน
         window.moveLayerUp = function(id, e) {
@@ -650,7 +698,8 @@
                         categoryColors: {},
                         catField: '',
                         labelField: '',
-                        propertiesKeys: propsKeys
+                        propertiesKeys: propsKeys,
+                        visible: true // ค่าเริ่มต้นให้แสดงบนแผนที่
                     };
                     
                     // เพิ่มคิวให้ไปอยู่ด้านบนสุด
@@ -844,9 +893,8 @@
                     
                     currentLocationCircle = L.circle([lat, lng], { radius: accuracy, color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.15, weight: 1 }).addTo(map);
 
-                    // ไม่ต้องเด้งไปหาตำแหน่งปัจจุบัน (ตามคำขอ)
-                    // map.flyTo([lat, lng], 16, { duration: 1.5 });
-                    
+                    // เลื่อนแผนที่ไปที่ตำแหน่งนั้น
+                    // map.flyTo([lat, lng], 16, { duration: 1.5 }); // ปิดการเด้งไปตำแหน่งปัจจุบัน
                     Swal.close();
                     Swal.fire({
                         icon: 'success',
@@ -987,7 +1035,7 @@
         };
 
         // --- 7. Import / Export Excel & CSV & SHP ---
-        // Export
+        // Export Excel
         document.getElementById('export-excel-btn').addEventListener('click', () => {
             if(samplePoints.length === 0) return Swal.fire('แจ้งเตือน', 'ไม่มีจุดให้ Export', 'info');
 
@@ -1007,49 +1055,65 @@
             XLSX.writeFile(workbook, `Soil_Points_${new Date().getTime()}.xlsx`);
         });
 
-        // Export SHP
+        // Export SHP (แก้ไขปัญหา JSZip Conflict สมบูรณ์)
         document.getElementById('export-shp-btn').addEventListener('click', () => {
             if(samplePoints.length === 0) return Swal.fire('แจ้งเตือน', 'ไม่มีจุดให้ Export', 'info');
 
             Swal.fire({ title: 'กำลังสร้างไฟล์ Shapefile...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
 
-            try {
-                // สร้าง GeoJSON จากจุดทั้งหมด
-                const geojson = {
-                    type: "FeatureCollection",
-                    features: samplePoints.map(p => ({
-                        type: "Feature",
-                        geometry: {
-                            type: "Point",
-                            coordinates: [p.lng, p.lat] // GeoJSON ใช้ [Lng, Lat]
-                        },
-                        properties: {
-                            Point_ID: p.id,
-                            Latitude: p.lat,
-                            Longitude: p.lng,
-                            Name: `Point ${p.id}`
-                        }
-                    }))
-                };
+            // ใช้ setTimeout เพื่อให้ UI โหลดก่อนเริ่มทำงาน
+            setTimeout(() => {
+                try {
+                    // สร้าง GeoJSON จากจุดทั้งหมด
+                    const geojson = {
+                        type: "FeatureCollection",
+                        features: samplePoints.map(p => ({
+                            type: "Feature",
+                            geometry: {
+                                type: "Point",
+                                coordinates: [p.lng, p.lat] // GeoJSON ใช้ [Lng, Lat]
+                            },
+                            properties: {
+                                Point_ID: p.id,
+                                Latitude: p.lat,
+                                Longitude: p.lng,
+                                Name: `Point ${p.id}`
+                            }
+                        }))
+                    };
 
-                // กำหนด options สำหรับ shpwrite (จะสร้างไฟล์ .zip ให้อัตโนมัติในระบบ WGS84 EPSG:4326)
-                const options = {
-                    folder: 'Soil_Sample_Points',
-                    types: {
-                        point: 'Soil_Points',
-                        polygon: false,
-                        line: false
+                    const options = {
+                        folder: 'Soil_Sample_Points',
+                        types: { point: 'Soil_Points', polygon: false, line: false }
+                    };
+
+                    // ---- สำคัญ: ดึง JSZip กลับมาเป็นเวอร์ชัน 2 เฉพาะตอนแพ็คไฟล์ ----
+                    const tempJSZip = window.JSZip; 
+                    if (window.__JSZip_v2) {
+                        window.JSZip = window.__JSZip_v2;
                     }
-                };
 
-                // shpwrite ทำการแปลงและดาวน์โหลด .zip ทันที
-                shpwrite.download(geojson, options);
-                
-                Swal.fire({ icon: 'success', title: 'สำเร็จ', text: 'ดาวน์โหลดไฟล์ Shapefile เรียบร้อยแล้ว', timer: 2000, showConfirmButton: false });
-            } catch (error) {
-                console.error("Export SHP Error:", error);
-                Swal.fire('ข้อผิดพลาด', 'ไม่สามารถสร้างไฟล์ Shapefile ได้', 'error');
-            }
+                    // shpwrite สร้างข้อความ Base64 มาให้โดยตรง
+                    const content = shpwrite.zip(geojson, options);
+
+                    // ---- คืนค่า JSZip กลับเป็นเวอร์ชันของระบบ ----
+                    window.JSZip = tempJSZip;
+
+                    // สร้างการดาวน์โหลด
+                    const link = document.createElement('a');
+                    link.href = 'data:application/zip;base64,' + content;
+                    link.download = 'Soil_Sample_Points.zip';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    
+                    Swal.fire({ icon: 'success', title: 'สำเร็จ', text: 'ดาวน์โหลดไฟล์ Shapefile เรียบร้อยแล้ว', timer: 2000, showConfirmButton: false });
+                } catch (error) {
+                    console.error("Export SHP Error:", error);
+                    window.JSZip = window.__JSZip_v3; // คืนค่าเซฟตี้
+                    Swal.fire('ข้อผิดพลาด', 'ไม่สามารถสร้างไฟล์ Shapefile ได้', 'error');
+                }
+            }, 100);
         });
 
         // Import
@@ -1444,7 +1508,7 @@
                     pointIdCounter = 1; 
                     updatePointsList();
 
-                    // ไม่ต้องลบจุดตำแหน่งปัจจุบัน (ตามคำขอ)
+                    // ลบจุดตำแหน่งปัจจุบันออกด้วย (ถ้ามี)
                     // if (currentLocationMarker) map.removeLayer(currentLocationMarker);
                     // if (currentLocationCircle) map.removeLayer(currentLocationCircle);
                     // currentLocationMarker = null;
@@ -1518,6 +1582,13 @@
             
             let msg = `📍 แผนเก็บตัวอย่างดิน (รวม ${samplePoints.length} จุด)\n\n`;
             
+            // สร้างลิงก์ที่มีพิกัด (pts) ต่อท้าย
+            const ptsString = samplePoints.map(p => `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`).join('|');
+            const baseUrl = window.location.href.split('?')[0];
+            const shareUrl = `${baseUrl}?pts=${ptsString}`;
+            
+            msg += `เปิดดูบนกระดานแผนที่:\n${shareUrl}\n\n`;
+            
             samplePoints.forEach(p => {
                 const lat = p.lat.toFixed(6);
                 const lng = p.lng.toFixed(6);
@@ -1530,14 +1601,28 @@
             const lineUrl = `https://line.me/R/msg/text/?${encodedMsg}`;
             
             Swal.fire({
-                title: 'แชร์ข้อมูลพิกัด',
+                title: 'แชร์ข้อมูลพิกัด / ลิงก์',
                 html: `
-                    <p class="text-sm mb-3 text-gray-600">ส่งพิกัดให้เพื่อนทาง LINE หรือคัดลอกข้อความด้านล่าง</p>
+                    <p class="text-sm mb-3 text-gray-600">ส่งพิกัดให้เพื่อนทาง LINE หรือคัดลอกลิงก์ด้านล่าง</p>
                     <a href="${lineUrl}" target="_blank" class="flex items-center justify-center w-full bg-[#00B900] hover:bg-[#009900] text-white text-sm font-bold py-2.5 px-4 rounded mb-3 transition">
                         <i class="fa-brands fa-line text-lg mr-2"></i> ส่งเข้าแชท LINE
                     </a>
-                    <div class="flex flex-col gap-2">
-                        <textarea id="share-text-area" class="w-full border border-gray-300 rounded p-2 text-xs bg-gray-50 focus:outline-none" rows="6" readonly>${msg}</textarea>
+                    
+                    <div class="flex flex-col gap-2 mt-3 text-left">
+                        <label class="text-xs text-emerald-700 font-semibold"><i class="fa-solid fa-link"></i> ลิงก์สำหรับเปิดดูบนกระดาน:</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="share-link-input" class="w-full border border-gray-300 rounded p-2 text-xs bg-gray-50 focus:outline-none" value="${shareUrl}" readonly>
+                            <button onclick="copyShareLink()" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-2 rounded text-xs font-bold transition whitespace-nowrap">
+                                คัดลอก
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <hr class="my-3 border-gray-200"/>
+
+                    <div class="flex flex-col gap-2 text-left">
+                        <label class="text-xs text-gray-600 font-semibold"><i class="fa-regular fa-file-lines"></i> ข้อความสรุปพิกัด:</label>
+                        <textarea id="share-text-area" class="w-full border border-gray-300 rounded p-2 text-xs bg-gray-50 focus:outline-none" rows="4" readonly>${msg}</textarea>
                         <button onclick="copyShareText()" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-2 rounded text-xs font-bold transition w-full">
                             คัดลอกข้อความทั้งหมด
                         </button>
@@ -1547,6 +1632,17 @@
                 showCloseButton: true
             });
         });
+        
+        window.copyShareLink = function() {
+            const input = document.getElementById('share-link-input');
+            input.select();
+            input.setSelectionRange(0, 99999);
+            document.execCommand("copy");
+            
+            Swal.fire({
+                icon: 'success', title: 'คัดลอกลิงก์แล้ว', toast: true, position: 'top-end', showConfirmButton: false, timer: 1500
+            });
+        }
 
         window.copyShareText = function() {
             const textArea = document.getElementById('share-text-area');
@@ -1559,7 +1655,113 @@
             });
         }
 
-        // --- 11. Load points from URL on start ---
+        // --- 11. Export Image Layout (Save รูป) ---
+        document.getElementById('export-img-btn').addEventListener('click', async function() {
+            if(samplePoints.length === 0 && Object.keys(shpLayers).length === 0) {
+                return Swal.fire('แจ้งเตือน', 'กรุณาปักจุดหรือนำเข้าขอบเขตพื้นที่ก่อนทำการบันทึกแผนที่', 'info');
+            }
+
+            Swal.fire({ title: 'กำลังจัดทำ Layout แผนที่...', allowOutsideClick: false, didOpen: () => Swal.showLoading() });
+            
+            const mapWrapper = document.getElementById('map-wrapper');
+            const mapContainer = document.getElementById('map');
+
+            // เตรียม Layout สำหรับการพิมพ์
+            mapContainer.classList.remove('absolute', 'inset-0');
+            mapContainer.classList.add('flex-1', 'border-[3px]', 'border-gray-800', 'relative', 'z-10');
+            mapWrapper.classList.add('p-6', 'md:p-10', 'bg-white', 'flex', 'flex-col');
+            
+            // ส่วนหัว (Header)
+            const header = document.createElement('div');
+            header.id = 'print-header';
+            header.className = 'mb-4 border-b-2 border-gray-800 pb-3 flex justify-between items-end shrink-0 z-10';
+            header.innerHTML = `
+                <div>
+                    <h1 class="text-2xl md:text-3xl font-bold text-gray-900" style="font-family: 'Prompt', sans-serif;">แผนที่แสดงจุดเก็บตัวอย่างดิน</h1>
+                    <p class="text-sm text-gray-600 mt-1">วันที่จัดทำ: ${new Date().toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+                </div>
+                <div class="text-right">
+                    <p class="text-lg font-semibold text-emerald-700 bg-emerald-50 px-3 py-1 rounded border border-emerald-200">
+                        รวม: ${samplePoints.length} จุด
+                    </p>
+                </div>
+            `;
+            mapWrapper.insertBefore(header, mapContainer);
+
+            // ส่วนคำอธิบายสัญลักษณ์ (Footer / Legend)
+            const footer = document.createElement('div');
+            footer.id = 'print-footer';
+            footer.className = 'mt-4 pt-3 border-t-2 border-gray-800 flex justify-between items-center text-sm text-gray-800 shrink-0 z-10';
+            
+            const pointColor = document.getElementById('point-color').value;
+            const isCircle = document.getElementById('point-shape').value === 'circle';
+            
+            let footerHtml = `
+                <div class="flex items-center gap-6 font-medium flex-wrap">
+                    <div class="flex items-center gap-2">
+                        <span style="background-color: ${pointColor}; width: 14px; height: 14px; border-radius: ${isCircle ? '50%' : '0'}; border: 1px solid #000;"></span>
+                        จุดเก็บตัวอย่าง
+                    </div>`;
+
+            // เพิ่ม Legend สำหรับทุก Shapefile ที่ใช้งานอยู่
+            Object.values(shpLayers).forEach(shp => {
+                footerHtml += `
+                    <div class="flex items-center gap-2">
+                        <span style="background-color: ${shp.color}40; width: 18px; height: 18px; border: 2px solid ${shp.color};"></span>
+                        ${shp.name.length > 20 ? shp.name.substring(0, 20) + '...' : shp.name}
+                    </div>`;
+            });
+
+            footerHtml += `
+                </div>
+                <div class="text-xs text-gray-500 whitespace-nowrap ml-4">ระบบอ้างอิงพิกัด: WGS 84</div>
+            `;
+            footer.innerHTML = footerHtml;
+            mapWrapper.appendChild(footer);
+
+            map.invalidateSize();
+
+            // รอ 1.5 วิ ให้กระเบื้องโหลด
+            setTimeout(async () => {
+                try {
+                    const canvas = await html2canvas(mapWrapper, { 
+                        useCORS: true, 
+                        allowTaint: false,
+                        backgroundColor: '#ffffff',
+                        scale: 2 
+                    });
+                    
+                    canvas.toBlob(function(blob) {
+                        if (blob) {
+                            const url = window.URL.createObjectURL(blob);
+                            const link = document.createElement('a');
+                            link.download = `Soil_Map_Layout_${new Date().getTime()}.jpg`;
+                            link.href = url;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            window.URL.revokeObjectURL(url);
+                            Swal.fire({ icon: 'success', title: 'บันทึกแผนที่สำเร็จ!', showConfirmButton: false, timer: 1500 });
+                        } else {
+                            Swal.fire('ข้อผิดพลาด', 'สร้างไฟล์ภาพไม่สำเร็จ', 'error');
+                        }
+                    }, "image/jpeg", 0.95);
+
+                } catch (err) {
+                    console.error("Export error:", err);
+                    Swal.fire('ข้อผิดพลาด', 'ไม่สามารถบันทึกภาพได้', 'error');
+                } finally {
+                    header.remove();
+                    footer.remove();
+                    mapWrapper.classList.remove('p-6', 'md:p-10', 'bg-white', 'flex', 'flex-col');
+                    mapContainer.classList.remove('flex-1', 'border-[3px]', 'border-gray-800', 'relative', 'z-10');
+                    mapContainer.classList.add('absolute', 'inset-0');
+                    map.invalidateSize();
+                }
+            }, 1500); 
+        });
+
+        // --- 12. Load points from URL on start ---
         function loadPointsFromURL() {
             const urlParams = new URLSearchParams(window.location.search);
             const ptsParam = urlParams.get('pts');
@@ -1599,7 +1801,7 @@
         // Trigger URL parse logic right after initialization
         loadPointsFromURL();
 
-        // --- 12. Mobile Sidebar Toggle ---
+        // --- 13. Mobile Sidebar Toggle ---
         const sidebar = document.getElementById('sidebar');
         const overlay = document.getElementById('sidebar-overlay');
         
